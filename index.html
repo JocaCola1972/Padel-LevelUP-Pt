@@ -17,6 +17,26 @@
                 dark: '#3f6212', // lime-800
                 blue: '#1e3a8a', // blue-900
               }
+            },
+            animation: {
+              'fade-in': 'fadeIn 0.5s ease-out',
+              'slide-down': 'slideDown 0.3s ease-out',
+              'shimmer': 'shimmer 2s infinite',
+              'spin-slow': 'spin 12s linear infinite',
+            },
+            keyframes: {
+              fadeIn: {
+                '0%': { opacity: '0', transform: 'translateY(10px)' },
+                '100%': { opacity: '1', transform: 'translateY(0)' },
+              },
+              slideDown: {
+                '0%': { opacity: '0', transform: 'translateY(-10px)' },
+                '100%': { opacity: '1', transform: 'translateY(0)' },
+              },
+              shimmer: {
+                '0%': { transform: 'translateX(-100%) skewX(-15deg)' },
+                '100%': { transform: 'translateX(200%) skewX(-15deg)' },
+              }
             }
           }
         }
@@ -35,6 +55,16 @@
       #root {
         background-color: rgba(255, 255, 255, 0.85);
         min-height: 100vh;
+      }
+      .no-scrollbar::-webkit-scrollbar {
+          display: none;
+      }
+      .no-scrollbar {
+          -ms-overflow-style: none;
+          scrollbar-width: none;
+      }
+      .pb-safe {
+          padding-bottom: env(safe-area-inset-bottom);
       }
     </style>
     <!-- SheetJS for Excel Import -->

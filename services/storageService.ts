@@ -52,10 +52,21 @@ export const getPlayers = (): Player[] => {
   const data = localStorage.getItem(KEYS.PLAYERS);
   let players: Player[] = data ? JSON.parse(data) : [];
   
-  // Migration: Ensure at least one admin exists if there are players
-  if (players.length > 0 && !players.some(p => p.role === 'admin')) {
-      players[0].role = 'admin';
-      localStorage.setItem(KEYS.PLAYERS, JSON.stringify(players));
+  // Migration: Ensure at least one SUPER admin exists if there are players
+  if (players.length > 0) {
+      const hasSuperAdmin = players.some(p => p.role === 'super_admin');
+      
+      if (!hasSuperAdmin) {
+          // If no super admin, try to promote the first 'admin'
+          const adminIndex = players.findIndex(p => p.role === 'admin');
+          if (adminIndex >= 0) {
+              players[adminIndex].role = 'super_admin';
+          } else {
+              // If no admins at all, promote the very first user
+              players[0].role = 'super_admin';
+          }
+          localStorage.setItem(KEYS.PLAYERS, JSON.stringify(players));
+      }
   }
 
   return players;
@@ -85,17 +96,24 @@ export const savePlayer = (player: Player): void => {
         const maxNum = players.reduce((max, p) => Math.max(max, p.participantNumber || 0), 0);
         players[index].participantNumber = maxNum + 1;
     }
-    // Preserve existing role if not specified in update
+    // Preserve existing role if not specified in update, unless explicitly changed in the object passed
+    // NOTE: When updating profile from ProfileModal, role might be undefined, so keep current.
+    // When updating from MembersList (admin action), role will be set.
     const currentRole = players[index].role || 'user';
-    players[index] = { ...players[index], ...player, participantNumber: players[index].participantNumber, role: player.role || currentRole };
+    players[index] = { 
+        ...players[index], 
+        ...player, 
+        participantNumber: players[index].participantNumber, 
+        role: player.role || currentRole 
+    };
   } else {
     // New player
     const maxNum = players.reduce((max, p) => Math.max(max, p.participantNumber || 0), 0);
     player.participantNumber = maxNum + 1;
     
-    // First player ever becomes Admin
+    // First player ever becomes Super Admin
     if (players.length === 0) {
-        player.role = 'admin';
+        player.role = 'super_admin';
     } else {
         player.role = 'user';
     }
@@ -154,7 +172,7 @@ export const savePlayersBulk = (newPlayers: Partial<Player>[]): { added: number,
                 totalPoints: 0,
                 gamesPlayed: 0,
                 participantNumber: maxNum,
-                role: isFirst ? 'admin' : 'user'
+                role: isFirst ? 'super_admin' : 'user'
             });
             added++;
         }

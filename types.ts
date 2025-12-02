@@ -18,7 +18,7 @@ export interface Player {
   totalPoints: number;
   gamesPlayed: number;
   participantNumber: number; // New permanent ID
-  role?: 'admin' | 'user';
+  role?: 'super_admin' | 'admin' | 'user';
   photoUrl?: string; // Base64 profile photo string
 }
 

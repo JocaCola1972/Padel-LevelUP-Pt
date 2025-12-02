@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect } from 'react';
 import { Player } from './types';
 import { PlayerForm } from './components/PlayerForm';
@@ -80,6 +81,9 @@ const App: React.FC = () => {
   // App View
   if (!currentUser) return null; // Should not happen
 
+  // Helper to check if user has ANY admin privileges
+  const isAnyAdmin = currentUser.role === 'admin' || currentUser.role === 'super_admin';
+
   return (
     <div className="min-h-screen pb-24">
       {/* Header */}
@@ -100,13 +104,19 @@ const App: React.FC = () => {
                 </div>
             </div>
             
-            <div className="w-10 h-10 rounded-full border-2 border-padel overflow-hidden bg-gray-100 flex-shrink-0">
+            <div className="w-10 h-10 rounded-full border-2 border-padel overflow-hidden bg-gray-100 flex-shrink-0 relative">
                 {currentUser.photoUrl ? (
                     <img src={currentUser.photoUrl} alt={currentUser.name} className="w-full h-full object-cover" />
                 ) : (
                     <div className="w-full h-full flex items-center justify-center bg-padel-light/20 text-padel-dark text-lg">
                         👤
                     </div>
+                )}
+                {currentUser.role === 'super_admin' && (
+                  <div className="absolute -bottom-1 -right-1 bg-purple-600 text-white text-[8px] px-1 rounded-full border border-white font-bold">SP</div>
+                )}
+                {currentUser.role === 'admin' && (
+                  <div className="absolute -bottom-1 -right-1 bg-blue-600 text-white text-[8px] px-1 rounded-full border border-white font-bold">AD</div>
                 )}
             </div>
           </div>
@@ -127,9 +137,11 @@ const App: React.FC = () => {
         {activeTab === Tab.INSCRITOS && <InscritosList />}
         {activeTab === Tab.MATCHES && <MatchTracker currentUser={currentUser} />}
         {activeTab === Tab.RANKING && <RankingTable />}
-        {activeTab === Tab.MASTERS && <MastersLup isAdmin={currentUser.role === 'admin'} />}
-        {activeTab === Tab.MEMBERS && currentUser.role === 'admin' && <MembersList currentUser={currentUser} />}
-        {activeTab === Tab.ADMIN && <AdminPanel />}
+        
+        {/* Protected Tabs - Only Render if Admin */}
+        {activeTab === Tab.MASTERS && isAnyAdmin && <MastersLup isAdmin={isAnyAdmin} />}
+        {activeTab === Tab.MEMBERS && isAnyAdmin && <MembersList currentUser={currentUser} />}
+        {activeTab === Tab.ADMIN && isAnyAdmin && <AdminPanel />}
       </main>
 
       {/* Bottom Navigation */}
@@ -159,13 +171,17 @@ const App: React.FC = () => {
             icon="🏆"
             label="Ranking"
           />
-           <NavButton 
-            active={activeTab === Tab.MASTERS} 
-            onClick={() => setActiveTab(Tab.MASTERS)}
-            icon="👑"
-            label="Masters"
-          />
-          {currentUser.role === 'admin' && (
+          
+          {/* Protected Navigation Buttons */}
+          {isAnyAdmin && (
+             <NavButton 
+              active={activeTab === Tab.MASTERS} 
+              onClick={() => setActiveTab(Tab.MASTERS)}
+              icon="👑"
+              label="Masters"
+            />
+          )}
+          {isAnyAdmin && (
             <NavButton 
                 active={activeTab === Tab.MEMBERS} 
                 onClick={() => setActiveTab(Tab.MEMBERS)}
@@ -173,12 +189,14 @@ const App: React.FC = () => {
                 label="Membros"
             />
           )}
-          <NavButton 
-            active={activeTab === Tab.ADMIN} 
-            onClick={() => setActiveTab(Tab.ADMIN)}
-            icon="⚙️"
-            label="Admin"
-          />
+          {isAnyAdmin && (
+            <NavButton 
+              active={activeTab === Tab.ADMIN} 
+              onClick={() => setActiveTab(Tab.ADMIN)}
+              icon="⚙️"
+              label="Admin"
+            />
+          )}
         </div>
       </nav>
 

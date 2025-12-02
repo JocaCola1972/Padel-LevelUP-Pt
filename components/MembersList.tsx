@@ -56,7 +56,8 @@ export const MembersList: React.FC<MembersListProps> = ({ currentUser }) => {
         phone: newPhone,
         totalPoints: 0,
         gamesPlayed: 0,
-        participantNumber: 0 // Assigned in savePlayer
+        participantNumber: 0, // Assigned in savePlayer
+        role: 'user'
     };
 
     savePlayer(newPlayer);
@@ -74,6 +75,20 @@ export const MembersList: React.FC<MembersListProps> = ({ currentUser }) => {
       }
   };
 
+  // Role Management (Super Admin Only)
+  const toggleAdminRole = (player: Player) => {
+      if (currentUser?.role !== 'super_admin') return;
+      if (player.id === currentUser.id) {
+          alert("Não podes alterar o teu próprio papel aqui.");
+          return;
+      }
+
+      const newRole = player.role === 'admin' ? 'user' : 'admin';
+      const updatedPlayer = { ...player, role: newRole as any }; // Cast because enum strictness
+      savePlayer(updatedPlayer);
+      loadPlayers();
+  };
+
   // Export Function
   const exportMembers = () => {
       if (filteredPlayers.length === 0) {
@@ -87,7 +102,7 @@ export const MembersList: React.FC<MembersListProps> = ({ currentUser }) => {
           'Telemóvel': p.phone,
           'Jogos': p.gamesPlayed,
           'Pontos': p.totalPoints,
-          'Função': p.role || 'user'
+          'Função': p.role === 'super_admin' ? 'Super Admin' : p.role === 'admin' ? 'Admin' : 'Utilizador'
       }));
 
       const ws = XLSX.utils.json_to_sheet(data);
@@ -136,22 +151,16 @@ export const MembersList: React.FC<MembersListProps> = ({ currentUser }) => {
             let startRow = 1; // Default skip header row (index 0)
 
             // 1. Detect Headers
-            // Try to find headers in the first row
             const headerRow = rows[0].map((c: any) => String(c).toLowerCase().trim());
             const foundNameIdx = headerRow.findIndex((h: string) => h.includes('nome') || h.includes('name') || h.includes('jogador') || h.includes('participante'));
             const foundPhoneIdx = headerRow.findIndex((h: string) => h.includes('telem') || h.includes('phone') || h.includes('contac') || h.includes('celular') || h.includes('movel'));
 
             if (foundNameIdx > -1) {
-                // Headers found!
                 nameIdx = foundNameIdx;
-                // Try to find phone, or assume it's next to name
                 phoneIdx = foundPhoneIdx > -1 ? foundPhoneIdx : (nameIdx + 1);
             } else {
-                // No headers found? Use Default: Col A (0) = Name, Col B (1) = Phone
                 nameIdx = 0;
                 phoneIdx = 1;
-                
-                // Heuristic: If row 0, col 1 looks like a phone number, assume NO header exists and start at row 0
                 const potentialPhone = rows[0][1] ? String(rows[0][1]).replace(/[^0-9]/g, '') : '';
                 if (potentialPhone.length >= 9) {
                     startRow = 0;
@@ -166,11 +175,8 @@ export const MembersList: React.FC<MembersListProps> = ({ currentUser }) => {
 
                 const rawName = String(row[nameIdx]).trim();
                 let rawPhone = row[phoneIdx] ? String(row[phoneIdx]).trim() : '';
-                
-                // Clean phone
                 rawPhone = rawPhone.replace(/[^0-9]/g, '');
 
-                // Simple validation: Name exists and phone has at least 9 digits
                 if (rawName && rawPhone.length >= 9) {
                     playersToImport.push({
                         name: rawName,
@@ -191,15 +197,14 @@ export const MembersList: React.FC<MembersListProps> = ({ currentUser }) => {
             console.error(error);
             setImportStatus('Erro ao processar ficheiro. Verifique o formato.');
         } finally {
-            // Reset input so same file can be selected again if needed
             if (fileInputRef.current) fileInputRef.current.value = '';
             setTimeout(() => setImportStatus(''), 5000);
         }
     };
-
-    // Read as binary string for XLSX compatibility
     reader.readAsBinaryString(file);
   };
+
+  const isAnyAdmin = currentUser?.role === 'admin' || currentUser?.role === 'super_admin';
 
   return (
     <div className="space-y-6 pb-20">
@@ -212,7 +217,7 @@ export const MembersList: React.FC<MembersListProps> = ({ currentUser }) => {
                 <p className="text-sm text-gray-500">Diretório de todos os jogadores registados.</p>
             </div>
             
-            {currentUser?.role === 'admin' && (
+            {isAnyAdmin && (
                 <div className="flex flex-wrap gap-2 w-full md:w-auto">
                     <Button onClick={() => setIsAddModalOpen(true)}>
                         + Novo Membro
@@ -238,8 +243,7 @@ export const MembersList: React.FC<MembersListProps> = ({ currentUser }) => {
             )}
         </div>
 
-        {/* Template Helper Link (Only for Admin) */}
-        {currentUser?.role === 'admin' && (
+        {isAnyAdmin && (
             <div className="mt-2 text-right">
                 <button 
                     onClick={downloadTemplate}
@@ -250,14 +254,12 @@ export const MembersList: React.FC<MembersListProps> = ({ currentUser }) => {
             </div>
         )}
 
-        {/* Import Status Message */}
         {importStatus && (
             <div className={`mt-4 p-3 rounded-lg text-sm font-semibold animate-fade-in border ${importStatus.includes('Erro') || importStatus.includes('Nenhum') ? 'bg-red-50 text-red-800 border-red-100' : 'bg-blue-50 text-blue-800 border-blue-100'}`}>
                 {importStatus}
             </div>
         )}
 
-        {/* Search Bar */}
         <div className="mt-6">
             <input 
                 type="text" 
@@ -349,9 +351,9 @@ export const MembersList: React.FC<MembersListProps> = ({ currentUser }) => {
         </div>
         <div className="divide-y divide-gray-100">
             {filteredPlayers.map(player => (
-                <div key={player.id} className="p-4 hover:bg-gray-50 flex items-center justify-between group transition-colors">
+                <div key={player.id} className="p-4 hover:bg-gray-50 flex flex-col sm:flex-row sm:items-center justify-between group transition-colors gap-3">
                     <div className="flex items-center gap-4">
-                        <div className="w-10 h-10 rounded-full bg-padel-blue/10 border border-padel-blue/20 overflow-hidden flex-shrink-0">
+                        <div className="w-10 h-10 rounded-full bg-padel-blue/10 border border-padel-blue/20 overflow-hidden flex-shrink-0 relative">
                             {player.photoUrl ? (
                                 <img src={player.photoUrl} alt="" className="w-full h-full object-cover" />
                             ) : (
@@ -361,16 +363,40 @@ export const MembersList: React.FC<MembersListProps> = ({ currentUser }) => {
                             )}
                         </div>
                         <div>
-                            <h4 className="font-bold text-gray-900">{player.name}</h4>
+                            <h4 className="font-bold text-gray-900 flex items-center gap-2">
+                                {player.name}
+                                {player.role === 'super_admin' && (
+                                    <span className="text-[9px] bg-purple-600 text-white px-2 py-0.5 rounded-full uppercase tracking-wide">Super Admin</span>
+                                )}
+                                {player.role === 'admin' && (
+                                    <span className="text-[9px] bg-blue-500 text-white px-2 py-0.5 rounded-full uppercase tracking-wide">Admin</span>
+                                )}
+                            </h4>
                             <p className="text-xs text-gray-500 font-mono">#{player.participantNumber} • {player.phone}</p>
                         </div>
                     </div>
-                    <div className="flex items-center gap-4">
-                        <div className="text-right hidden sm:block">
-                            <div className="text-xs text-gray-400">Jogos: <span className="text-gray-600 font-bold">{player.gamesPlayed}</span></div>
-                            <div className="text-xs text-gray-400">Pts: <span className="text-padel-dark font-bold">{player.totalPoints}</span></div>
-                        </div>
-                        {currentUser?.role === 'admin' && (
+                    
+                    {isAnyAdmin && (
+                        <div className="flex items-center gap-3 justify-end mt-2 sm:mt-0">
+                            {/* Super Admin Role Controls */}
+                            {currentUser?.role === 'super_admin' && player.id !== currentUser.id && (
+                                <button
+                                    onClick={() => toggleAdminRole(player)}
+                                    className={`px-3 py-1 rounded-full text-xs font-bold transition-colors ${
+                                        player.role === 'admin' 
+                                        ? 'bg-yellow-100 text-yellow-700 hover:bg-yellow-200' 
+                                        : 'bg-blue-100 text-blue-700 hover:bg-blue-200'
+                                    }`}
+                                >
+                                    {player.role === 'admin' ? 'Despromover' : 'Promover a Admin'}
+                                </button>
+                            )}
+
+                            <div className="text-right hidden sm:block mr-2">
+                                <div className="text-xs text-gray-400">Jogos: <span className="text-gray-600 font-bold">{player.gamesPlayed}</span></div>
+                                <div className="text-xs text-gray-400">Pts: <span className="text-padel-dark font-bold">{player.totalPoints}</span></div>
+                            </div>
+                            
                             <button 
                                 onClick={() => setPlayerToDelete(player)}
                                 className="p-2 text-gray-300 hover:text-red-600 hover:bg-red-50 rounded-full transition-all"
@@ -378,8 +404,8 @@ export const MembersList: React.FC<MembersListProps> = ({ currentUser }) => {
                             >
                                 🗑️
                             </button>
-                        )}
-                    </div>
+                        </div>
+                    )}
                 </div>
             ))}
             {filteredPlayers.length === 0 && (
