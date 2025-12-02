@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html lang="pt">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/png" href="/logo.png" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Padel LevelUp</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+      tailwind.config = {
+        theme: {
+          extend: {
+            colors: {
+              padel: {
+                light: '#a3e635', // lime-400
+                DEFAULT: '#65a30d', // lime-600
+                dark: '#3f6212', // lime-800
+                blue: '#1e3a8a', // blue-900
+              }
+            }
+          }
+        }
+      }
+    </script>
+    <style>
+      body {
+        /* Placeholder for the user provided image. */
+        background-image: url('https://img.freepik.com/free-vector/silhouette-padel-player-background_23-2150068894.jpg');
+        background-size: cover;
+        background-position: center;
+        background-attachment: fixed;
+        background-repeat: no-repeat;
+      }
+      /* Overlay to ensure text readability */
+      #root {
+        background-color: rgba(255, 255, 255, 0.85);
+        min-height: 100vh;
+      }
+    </style>
+    <!-- SheetJS for Excel Import -->
+    <script src="https://cdn.sheetjs.com/xlsx-0.20.1/package/dist/xlsx.full.min.js"></script>
+    <script type="importmap">
+{
+  "imports": {
+    "react-dom/": "https://aistudiocdn.com/react-dom@^19.2.0/",
+    "react/": "https://aistudiocdn.com/react@^19.2.0/",
+    "react": "https://aistudiocdn.com/react@^19.2.0",
+    "@google/genai": "https://aistudiocdn.com/@google/genai@^1.30.0"
+  }
+}
+</script>
+</head>
+  <body class="text-gray-900 antialiased">
+    <div id="root"></div>
+    <script type="module" src="/index.tsx"></script>
+  </body>
+</html>

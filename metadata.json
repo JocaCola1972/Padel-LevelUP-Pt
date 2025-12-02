@@ -1,0 +1,5 @@
+{
+  "name": "Padel LevelUp",
+  "description": "Aplicação de gestão de torneios de Padel em formato Sobe e Desce com inscrições, registo de resultados e rankings individuais.",
+  "requestFramePermissions": []
+}
