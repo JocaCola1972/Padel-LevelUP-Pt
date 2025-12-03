@@ -50,9 +50,9 @@ export const MatchTracker: React.FC<MatchTrackerProps> = ({ currentUser }) => {
     setAppState(currentState);
     setAllPlayers(players);
 
-    // Filter shifts where the user is registered for the ACTIVE TOURNAMENT DATE
+    // Filter shifts where the user is registered for the ACTIVE TOURNAMENT DATE AND IS A GAME TYPE
     const myShifts = registrations
-        .filter(r => r.playerId === currentUser.id && r.date === currentState.nextSundayDate)
+        .filter(r => r.playerId === currentUser.id && r.date === currentState.nextSundayDate && r.type === 'game')
         .map(r => r.shift);
     
     // Remove duplicates just in case
@@ -373,7 +373,7 @@ export const MatchTracker: React.FC<MatchTrackerProps> = ({ currentUser }) => {
                  <Button variant="ghost" onClick={() => setViewMode('history')} className="text-xs">📜 Ver Histórico</Button>
               </div>
               <h2 className="text-xl font-bold text-gray-400 mb-2">Sem Inscrições Ativas</h2>
-              <p className="text-gray-500">Não estás inscrito para <strong>{appState.nextSundayDate}</strong>.</p>
+              <p className="text-gray-500">Não estás inscrito para <strong>{appState.nextSundayDate}</strong> (Jogos).</p>
           </div>
       );
   }

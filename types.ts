@@ -15,6 +15,7 @@ export interface Player {
   id: string;
   name: string;
   phone: string;
+  password?: string; // Optional password for login
   totalPoints: number;
   gamesPlayed: number;
   participantNumber: number; // New permanent ID
@@ -30,6 +31,7 @@ export interface Registration {
   shift: Shift;
   date: string;
   hasPartner: boolean;
+  type?: 'game' | 'training'; // New field: distinguish activity
 }
 
 export interface MatchRecord {
@@ -49,6 +51,14 @@ export interface CourtAllocation {
   training: number;
 }
 
+export interface PasswordResetRequest {
+  id: string;
+  playerId: string;
+  playerName: string;
+  playerPhone: string;
+  timestamp: number;
+}
+
 export interface AppState {
   registrationsOpen: boolean;
   courtConfig: Record<Shift, CourtAllocation>; // Replaces activeCourts with per-shift config
@@ -56,6 +66,7 @@ export interface AppState {
   gamesPerShift: Record<Shift, number>; // Updated to map each shift to a number
   customLogo?: string; // Base64 string of the custom uploaded logo
   isTournamentFinished?: boolean;
+  passwordResetRequests: PasswordResetRequest[]; // List of pending requests
 }
 
 // --- MASTERS LUP TYPES ---

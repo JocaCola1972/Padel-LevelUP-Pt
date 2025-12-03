@@ -1,7 +1,7 @@
 
 import React, { useState, useEffect, useRef } from 'react';
-import { Player } from '../types';
-import { getPlayers, savePlayer, savePlayersBulk, removePlayer, generateUUID } from '../services/storageService';
+import { Player, AppState } from '../types';
+import { getPlayers, savePlayer, savePlayersBulk, removePlayer, generateUUID, getAppState, resolvePasswordReset } from '../services/storageService';
 import { Button } from './Button';
 
 // Declaration for SheetJS loaded via CDN
@@ -13,6 +13,7 @@ interface MembersListProps {
 
 export const MembersList: React.FC<MembersListProps> = ({ currentUser }) => {
   const [players, setPlayers] = useState<Player[]>([]);
+  const [appState, setAppState] = useState<AppState>(getAppState());
   const [searchTerm, setSearchTerm] = useState('');
   
   // Manual Add Modal State
@@ -33,8 +34,8 @@ export const MembersList: React.FC<MembersListProps> = ({ currentUser }) => {
 
   const loadPlayers = () => {
     const data = getPlayers();
-    // Sort by Participant Number
     setPlayers(data.sort((a, b) => (a.participantNumber || 0) - (b.participantNumber || 0)));
+    setAppState(getAppState()); // Refresh requests
   };
 
   const filteredPlayers = players.filter(p => 
@@ -87,6 +88,23 @@ export const MembersList: React.FC<MembersListProps> = ({ currentUser }) => {
       const updatedPlayer = { ...player, role: newRole as any }; // Cast because enum strictness
       savePlayer(updatedPlayer);
       loadPlayers();
+  };
+
+  // Reset Password (Super Admin Only)
+  const resetUserPassword = (player: Player) => {
+      if (currentUser?.role !== 'super_admin') return;
+      if (window.confirm(`Tem a certeza que deseja remover a password de ${player.name}?`)) {
+          const updatedPlayer = { ...player, password: undefined };
+          savePlayer(updatedPlayer);
+          loadPlayers();
+          alert("Password removida com sucesso.");
+      }
+  };
+
+  // Handle Requests
+  const handleResolveRequest = (reqId: string, approve: boolean) => {
+      resolvePasswordReset(reqId, approve);
+      loadPlayers(); // Refresh list and state
   };
 
   // Export Function
@@ -205,6 +223,8 @@ export const MembersList: React.FC<MembersListProps> = ({ currentUser }) => {
   };
 
   const isAnyAdmin = currentUser?.role === 'admin' || currentUser?.role === 'super_admin';
+  const isSuperAdmin = currentUser?.role === 'super_admin';
+  const pendingRequests = appState.passwordResetRequests || [];
 
   return (
     <div className="space-y-6 pb-20">
@@ -257,6 +277,43 @@ export const MembersList: React.FC<MembersListProps> = ({ currentUser }) => {
         {importStatus && (
             <div className={`mt-4 p-3 rounded-lg text-sm font-semibold animate-fade-in border ${importStatus.includes('Erro') || importStatus.includes('Nenhum') ? 'bg-red-50 text-red-800 border-red-100' : 'bg-blue-50 text-blue-800 border-blue-100'}`}>
                 {importStatus}
+            </div>
+        )}
+
+        {/* NOTIFICATIONS CENTER - SUPER ADMIN ONLY */}
+        {isSuperAdmin && pendingRequests.length > 0 && (
+            <div className="mt-6 bg-yellow-50 p-4 rounded-xl border border-yellow-200 animate-fade-in shadow-inner">
+                <h3 className="text-lg font-bold text-yellow-800 flex items-center gap-2 mb-3">
+                    🔔 Pedidos de Recuperação de Password
+                </h3>
+                <div className="space-y-2">
+                    {pendingRequests.map(req => (
+                        <div key={req.id} className="bg-white p-3 rounded shadow-sm flex justify-between items-center">
+                            <div>
+                                <span className="font-bold text-gray-800">{req.playerName}</span>
+                                <span className="text-xs text-gray-500 ml-2">({req.playerPhone})</span>
+                                <div className="text-[10px] text-gray-400">
+                                    {new Date(req.timestamp).toLocaleDateString()} {new Date(req.timestamp).toLocaleTimeString()}
+                                </div>
+                            </div>
+                            <div className="flex gap-2">
+                                <Button 
+                                    onClick={() => handleResolveRequest(req.id, true)}
+                                    className="bg-green-600 hover:bg-green-700 text-xs py-1 px-3 h-8"
+                                >
+                                    Reset
+                                </Button>
+                                <Button 
+                                    variant="ghost" 
+                                    onClick={() => handleResolveRequest(req.id, false)}
+                                    className="text-xs py-1 px-3 h-8 text-gray-400 hover:text-red-500"
+                                >
+                                    Ignorar
+                                </Button>
+                            </div>
+                        </div>
+                    ))}
+                </div>
             </div>
         )}
 
@@ -378,18 +435,29 @@ export const MembersList: React.FC<MembersListProps> = ({ currentUser }) => {
                     
                     {isAnyAdmin && (
                         <div className="flex items-center gap-3 justify-end mt-2 sm:mt-0">
-                            {/* Super Admin Role Controls */}
+                            {/* Super Admin Actions */}
                             {currentUser?.role === 'super_admin' && player.id !== currentUser.id && (
-                                <button
-                                    onClick={() => toggleAdminRole(player)}
-                                    className={`px-3 py-1 rounded-full text-xs font-bold transition-colors ${
-                                        player.role === 'admin' 
-                                        ? 'bg-yellow-100 text-yellow-700 hover:bg-yellow-200' 
-                                        : 'bg-blue-100 text-blue-700 hover:bg-blue-200'
-                                    }`}
-                                >
-                                    {player.role === 'admin' ? 'Despromover' : 'Promover a Admin'}
-                                </button>
+                                <>
+                                    <button
+                                        onClick={() => toggleAdminRole(player)}
+                                        className={`px-3 py-1 rounded-full text-xs font-bold transition-colors ${
+                                            player.role === 'admin' 
+                                            ? 'bg-yellow-100 text-yellow-700 hover:bg-yellow-200' 
+                                            : 'bg-blue-100 text-blue-700 hover:bg-blue-200'
+                                        }`}
+                                    >
+                                        {player.role === 'admin' ? 'Despromover' : 'Promover a Admin'}
+                                    </button>
+                                    
+                                    {/* Reset Password Button */}
+                                    <button
+                                        onClick={() => resetUserPassword(player)}
+                                        className="p-2 text-gray-400 hover:text-orange-500 hover:bg-orange-50 rounded-full transition-all"
+                                        title="Reset Password (Apagar)"
+                                    >
+                                        🔐
+                                    </button>
+                                </>
                             )}
 
                             <div className="text-right hidden sm:block mr-2">

@@ -1,5 +1,5 @@
 
-import { Player, Registration, MatchRecord, AppState, Shift, CourtAllocation, MastersState } from '../types';
+import { Player, Registration, MatchRecord, AppState, Shift, CourtAllocation, MastersState, PasswordResetRequest } from '../types';
 
 const KEYS = {
   PLAYERS: 'padel_players',
@@ -25,18 +25,19 @@ export const generateUUID = () => {
 const defaultState: AppState = {
   registrationsOpen: false,
   courtConfig: {
-    [Shift.MORNING_1]: { game: 4, training: 0 },
-    [Shift.MORNING_2]: { game: 4, training: 0 },
-    [Shift.MORNING_3]: { game: 4, training: 0 },
+    [Shift.MORNING_1]: { game: 7, training: 2 },
+    [Shift.MORNING_2]: { game: 8, training: 1 },
+    [Shift.MORNING_3]: { game: 9, training: 0 },
   },
   nextSundayDate: new Date().toISOString().split('T')[0], // Format YYYY-MM-DD
   gamesPerShift: {
-    [Shift.MORNING_1]: 5,
-    [Shift.MORNING_2]: 5,
+    [Shift.MORNING_1]: 4,
+    [Shift.MORNING_2]: 4,
     [Shift.MORNING_3]: 5
   },
   customLogo: undefined,
-  isTournamentFinished: false
+  isTournamentFinished: false,
+  passwordResetRequests: []
 };
 
 const defaultMastersState: MastersState = {
@@ -259,10 +260,9 @@ export const getAppState = (): AppState => {
         };
     }
 
-    // Migration 2: Handle old activeCourts (global number) -> new courtConfig (per shift object)
+    // Migration 2: Handle old activeCourts -> new courtConfig
     let courtConfig = parsed.courtConfig;
     if (!courtConfig) {
-        // If we have 'activeCourts' from old state, use it, otherwise default to 4
         const oldActive = parsed.activeCourts || 4;
         courtConfig = {
             [Shift.MORNING_1]: { game: oldActive, training: 0 },
@@ -270,8 +270,11 @@ export const getAppState = (): AppState => {
             [Shift.MORNING_3]: { game: oldActive, training: 0 },
         };
     }
+    
+    // Migration 3: Ensure passwordResetRequests exists
+    let passwordResetRequests = parsed.passwordResetRequests || [];
 
-    return { ...defaultState, ...parsed, gamesPerShift, courtConfig };
+    return { ...defaultState, ...parsed, gamesPerShift, courtConfig, passwordResetRequests };
   }
   return defaultState;
 };
@@ -280,6 +283,54 @@ export const updateAppState = (newState: Partial<AppState>): void => {
   const current = getAppState();
   localStorage.setItem(KEYS.STATE, JSON.stringify({ ...current, ...newState }));
 };
+
+// --- Auth & Password Recovery ---
+
+export const requestPasswordReset = (phone: string): boolean => {
+    const player = getPlayerByPhone(phone);
+    if (!player) return false;
+
+    const state = getAppState();
+    
+    // Check if already requested
+    if (state.passwordResetRequests.find(r => r.playerId === player.id)) {
+        return true; // Already pending, treat as success
+    }
+
+    const newRequest: PasswordResetRequest = {
+        id: generateUUID(),
+        playerId: player.id,
+        playerName: player.name,
+        playerPhone: player.phone,
+        timestamp: Date.now()
+    };
+
+    updateAppState({
+        passwordResetRequests: [...state.passwordResetRequests, newRequest]
+    });
+
+    return true;
+};
+
+export const resolvePasswordReset = (requestId: string, approve: boolean): void => {
+    const state = getAppState();
+    const req = state.passwordResetRequests.find(r => r.id === requestId);
+    
+    if (req && approve) {
+        // Find player and remove password
+        const players = getPlayers();
+        const pIndex = players.findIndex(p => p.id === req.playerId);
+        if (pIndex >= 0) {
+            players[pIndex].password = undefined; // Reset to no password
+            localStorage.setItem(KEYS.PLAYERS, JSON.stringify(players));
+        }
+    }
+
+    // Remove request from queue
+    const updatedRequests = state.passwordResetRequests.filter(r => r.id !== requestId);
+    updateAppState({ passwordResetRequests: updatedRequests });
+};
+
 
 // --- MASTERS LUP ---
 

@@ -12,6 +12,7 @@ import { MembersList } from './components/MembersList';
 import { ProfileModal } from './components/ProfileModal';
 import { MastersLup } from './components/MastersLup';
 import { generateTacticalTip } from './services/geminiService';
+import { getAppState } from './services/storageService';
 
 enum Tab {
   REGISTRATION = 'registrations',
@@ -38,10 +39,24 @@ const App: React.FC = () => {
   const [tip, setTip] = useState<string>('');
   
   const [isProfileOpen, setIsProfileOpen] = useState(false);
+  
+  // Notification State
+  const [pendingRequestsCount, setPendingRequestsCount] = useState(0);
 
   useEffect(() => {
     // Load AI tip on mount
     generateTacticalTip().then(setTip);
+
+    // Check for notifications periodically
+    const checkNotifications = () => {
+        const state = getAppState();
+        setPendingRequestsCount(state.passwordResetRequests?.length || 0);
+    };
+    
+    checkNotifications();
+    const interval = setInterval(checkNotifications, 5000);
+    return () => clearInterval(interval);
+
   }, []);
 
   const handleNavigateFromLanding = (mode: 'login' | 'register') => {
@@ -83,6 +98,7 @@ const App: React.FC = () => {
 
   // Helper to check if user has ANY admin privileges
   const isAnyAdmin = currentUser.role === 'admin' || currentUser.role === 'super_admin';
+  const isSuperAdmin = currentUser.role === 'super_admin';
 
   return (
     <div className="min-h-screen pb-24">
@@ -182,12 +198,19 @@ const App: React.FC = () => {
             />
           )}
           {isAnyAdmin && (
-            <NavButton 
-                active={activeTab === Tab.MEMBERS} 
-                onClick={() => setActiveTab(Tab.MEMBERS)}
-                icon="👥"
-                label="Membros"
-            />
+            <div className="relative">
+                <NavButton 
+                    active={activeTab === Tab.MEMBERS} 
+                    onClick={() => setActiveTab(Tab.MEMBERS)}
+                    icon="👥"
+                    label="Membros"
+                />
+                {isSuperAdmin && pendingRequestsCount > 0 && (
+                    <span className="absolute top-1 right-2 bg-red-500 text-white text-[9px] font-bold px-1.5 rounded-full animate-bounce">
+                        {pendingRequestsCount}
+                    </span>
+                )}
+            </div>
           )}
           {isAnyAdmin && (
             <NavButton 

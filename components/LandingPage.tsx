@@ -22,7 +22,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onNavigate }) => {
                 <img 
                     src={logoSrc}
                     alt="Padel LevelUp Logo" 
-                    className="w-full h-full object-cover rounded-full"
+                    className="w-full h-full object-contain rounded-full p-4"
                     onError={() => setImgError(true)}
                 />
             ) : (

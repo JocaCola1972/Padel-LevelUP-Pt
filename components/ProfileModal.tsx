@@ -1,3 +1,4 @@
+
 import React, { useState, useRef } from 'react';
 import { Player } from '../types';
 import { savePlayer, removePlayer } from '../services/storageService';
@@ -14,7 +15,13 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({ currentUser, onClose
   const [name, setName] = useState(currentUser.name);
   const [phone, setPhone] = useState(currentUser.phone);
   const [photoUrl, setPhotoUrl] = useState(currentUser.photoUrl || '');
+  
+  // Password State
+  const [newPassword, setNewPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  
   const [error, setError] = useState('');
+  const [success, setSuccess] = useState('');
   
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -37,9 +44,23 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({ currentUser, onClose
 
   const handleSave = (e: React.FormEvent) => {
     e.preventDefault();
+    setError('');
+    setSuccess('');
+
     if (!name.trim() || phone.length < 9) {
       setError('Por favor preencha os campos corretamente.');
       return;
+    }
+
+    if (newPassword || confirmPassword) {
+        if (newPassword !== confirmPassword) {
+            setError('As passwords não coincidem.');
+            return;
+        }
+        if (newPassword.length < 4) {
+            setError('A password deve ter pelo menos 4 caracteres.');
+            return;
+        }
     }
 
     try {
@@ -47,12 +68,23 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({ currentUser, onClose
         ...currentUser,
         name,
         phone,
-        photoUrl: photoUrl || undefined
+        photoUrl: photoUrl || undefined,
+        password: newPassword ? newPassword : currentUser.password // Update if set, otherwise keep existing
       };
 
       savePlayer(updatedPlayer);
       onUpdate(updatedPlayer);
-      onClose();
+      setSuccess('Perfil atualizado com sucesso!');
+      
+      // Clear password fields
+      setNewPassword('');
+      setConfirmPassword('');
+      
+      // Close after short delay
+      setTimeout(() => {
+          onClose();
+      }, 1500);
+
     } catch (err: any) {
       setError(err.message || 'Erro ao gravar alterações.');
     }
@@ -63,6 +95,15 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({ currentUser, onClose
       removePlayer(currentUser.id);
       onLogout();
     }
+  };
+
+  const handleRemovePassword = () => {
+      if(window.confirm('Tem a certeza que deseja remover a password? Voltará a entrar apenas com o telemóvel.')) {
+          const updatedPlayer = { ...currentUser, password: undefined };
+          savePlayer(updatedPlayer);
+          onUpdate(updatedPlayer);
+          setSuccess('Password removida com sucesso.');
+      }
   };
 
   return (
@@ -136,7 +177,39 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({ currentUser, onClose
             />
           </div>
 
+          <div className="pt-2 border-t border-gray-100 mt-2">
+            <h4 className="text-xs font-black text-gray-800 uppercase mb-2">Segurança (Opcional)</h4>
+            <div className="space-y-2">
+                <div>
+                    <input
+                        type="password"
+                        placeholder={currentUser.password ? "Alterar Password" : "Criar Password"}
+                        value={newPassword}
+                        onChange={(e) => setNewPassword(e.target.value)}
+                        className="w-full p-3 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-padel outline-none text-sm"
+                    />
+                </div>
+                {newPassword && (
+                    <div className="animate-slide-down">
+                        <input
+                            type="password"
+                            placeholder="Confirmar Password"
+                            value={confirmPassword}
+                            onChange={(e) => setConfirmPassword(e.target.value)}
+                            className="w-full p-3 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-padel outline-none text-sm"
+                        />
+                    </div>
+                )}
+                {currentUser.password && !newPassword && (
+                     <div className="text-right">
+                         <button type="button" onClick={handleRemovePassword} className="text-xs text-red-400 hover:underline">Remover Password</button>
+                     </div>
+                )}
+            </div>
+          </div>
+
           {error && <p className="text-red-500 text-xs bg-red-50 p-2 rounded">{error}</p>}
+          {success && <p className="text-green-600 text-xs bg-green-50 p-2 rounded font-bold">{success}</p>}
 
           <div className="pt-2">
             <Button type="submit" className="w-full py-3">Gravar Alterações</Button>

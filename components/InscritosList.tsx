@@ -1,3 +1,4 @@
+
 import React, { useEffect, useState } from 'react';
 import { Player, Registration, AppState, Shift } from '../types';
 import { getPlayers, getRegistrations, getAppState } from '../services/storageService';
@@ -69,6 +70,11 @@ export const InscritosList: React.FC = () => {
                                 <div>
                                     <div className="font-semibold text-gray-800 flex items-center gap-2">
                                         {item.player?.name || 'Desconhecido'}
+                                        {item.reg.type === 'training' && (
+                                            <span className="text-[9px] bg-orange-100 text-orange-700 px-1.5 py-0.5 rounded uppercase font-bold tracking-wide">
+                                                Treino
+                                            </span>
+                                        )}
                                     </div>
                                     <div className="text-xs text-gray-500">
                                         {item.reg.hasPartner ? `Dupla: ${item.reg.partnerName}` : 'Individual'}

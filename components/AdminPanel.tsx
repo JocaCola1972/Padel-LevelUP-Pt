@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useRef } from 'react';
 import { AppState, Player, Registration, Shift, MatchRecord, GameResult } from '../types';
 import { getAppState, updateAppState, getRegistrations, getPlayers, removeRegistration, updateRegistration, getMatches } from '../services/storageService';
@@ -538,6 +539,11 @@ export const AdminPanel: React.FC = () => {
                                     <div>
                                         <div className="font-bold text-gray-800 flex items-center gap-2">
                                             {player ? player.name : 'Desconhecido'}
+                                            {reg.type === 'training' && (
+                                                <span className="text-[9px] bg-orange-100 text-orange-800 px-1 rounded uppercase font-bold tracking-wide">
+                                                    Treino
+                                                </span>
+                                            )}
                                             <span className="text-xs font-normal text-gray-500">
                                               #{player?.participantNumber} • {player?.phone}
                                             </span>
