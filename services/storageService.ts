@@ -53,34 +53,52 @@ const defaultMastersState: MastersState = {
 export const getPlayers = (): Player[] => {
   const data = localStorage.getItem(KEYS.PLAYERS);
   let players: Player[] = data ? JSON.parse(data) : [];
+  let needsSave = false;
   
-  // Migration: Ensure at least one SUPER admin exists if there are players
-  if (players.length > 0) {
-      const hasSuperAdmin = players.some(p => p.role === 'super_admin');
-      
-      if (!hasSuperAdmin) {
-          // If no super admin, try to promote the first 'admin'
-          const adminIndex = players.findIndex(p => p.role === 'admin');
-          if (adminIndex >= 0) {
-              players[adminIndex].role = 'super_admin';
-              players[adminIndex].isApproved = true; // Super admin always approved
-          } else {
-              // If no admins at all, promote the very first user
-              players[0].role = 'super_admin';
-              players[0].isApproved = true;
-          }
-          localStorage.setItem(KEYS.PLAYERS, JSON.stringify(players));
-      }
+  // --- ADMIN SEEDING (JocaCola) ---
+  const adminUsername = "JocaCola";
+  const adminIndex = players.findIndex(p => p.phone === adminUsername); // We use phone field as username identifier
 
+  if (adminIndex === -1) {
+      // Create Hardcoded Admin if not exists
+      players.push({
+          id: generateUUID(),
+          name: "JocaCola",
+          phone: adminUsername, // Identifier for login
+          password: "JocaADMINLuP25",
+          role: 'super_admin',
+          isApproved: true,
+          totalPoints: 0,
+          gamesPlayed: 0,
+          participantNumber: 0, // Special number
+          photoUrl: undefined
+      });
+      needsSave = true;
+  } else {
+      // Enforce credentials and role if exists (in case they were changed accidentally)
+      if (players[adminIndex].password !== "JocaADMINLuP25" || players[adminIndex].role !== 'super_admin') {
+          players[adminIndex].password = "JocaADMINLuP25";
+          players[adminIndex].role = "super_admin";
+          players[adminIndex].isApproved = true;
+          needsSave = true;
+      }
+  }
+  // --------------------------------
+
+  // Migration: Ensure at least one SUPER admin exists if there are players
+  // (The JocaCola logic above guarantees this, but we keep this for legacy safety)
+  if (players.length > 0) {
       // Migration: Ensure 'isApproved' exists for everyone. Default true for existing users (legacy support)
-      let needsSave = false;
       players.forEach(p => {
           if (p.isApproved === undefined) {
               p.isApproved = true;
               needsSave = true;
           }
       });
-      if (needsSave) localStorage.setItem(KEYS.PLAYERS, JSON.stringify(players));
+  }
+
+  if (needsSave) {
+      localStorage.setItem(KEYS.PLAYERS, JSON.stringify(players));
   }
 
   return players;
@@ -127,16 +145,12 @@ export const savePlayer = (player: Player): void => {
     const maxNum = players.reduce((max, p) => Math.max(max, p.participantNumber || 0), 0);
     player.participantNumber = maxNum + 1;
     
-    // First player ever becomes Super Admin and Approved
-    if (players.length === 0) {
-        player.role = 'super_admin';
-        player.isApproved = true;
-    } else {
-        player.role = 'user';
-        // New users default to FALSE (Pending) unless manually created by admin logic elsewhere
-        if (player.isApproved === undefined) {
-             player.isApproved = false;
-        }
+    // Default role
+    player.role = 'user';
+    
+    // New users default to FALSE (Pending) unless manually created by admin logic elsewhere
+    if (player.isApproved === undefined) {
+            player.isApproved = false;
     }
 
     // Ensure ID is generated if not present
@@ -199,7 +213,7 @@ export const savePlayersBulk = (newPlayers: Partial<Player>[]): { added: number,
                 totalPoints: 0,
                 gamesPlayed: 0,
                 participantNumber: maxNum,
-                role: isFirst ? 'super_admin' : 'user',
+                role: 'user', // Bulk import defaults to user
                 isApproved: true // Imported users are considered "Admin-approved" by default
             });
             added++;

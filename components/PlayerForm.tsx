@@ -49,9 +49,12 @@ export const PlayerForm: React.FC<PlayerFormProps> = ({ initialMode, onLogin, on
     e.preventDefault();
     setError('');
 
-    // Step 1: Check Phone
+    // Step 1: Check Phone / Username
     if (!requirePassword) {
-        if (phone.length < 9) {
+        // Special validation: if it's the specific admin username, skip length check
+        const isSpecialAdmin = phone === "JocaCola";
+        
+        if (!isSpecialAdmin && phone.length < 9) {
             setError('Número de telemóvel inválido');
             return;
         }
@@ -67,7 +70,7 @@ export const PlayerForm: React.FC<PlayerFormProps> = ({ initialMode, onLogin, on
                 attemptLogin(existingPlayer);
             }
         } else {
-            setError('Número não encontrado. Por favor cria a tua ficha primeiro.');
+            setError('Utilizador não encontrado. Por favor cria a tua ficha primeiro.');
         }
     } 
     // Step 2: Check Password
@@ -169,15 +172,15 @@ export const PlayerForm: React.FC<PlayerFormProps> = ({ initialMode, onLogin, on
         {mode === 'login' && (
           <form onSubmit={handleLoginSubmit} className="space-y-5">
             {!requirePassword ? (
-                /* Step 1: Phone */
+                /* Step 1: Phone / Username */
                 <div>
-                    <label className="block text-sm font-bold text-gray-700 mb-1 ml-1">Telemóvel</label>
+                    <label className="block text-sm font-bold text-gray-700 mb-1 ml-1">Telemóvel ou Username</label>
                     <input
-                        type="tel"
+                        type="text"
                         value={phone}
                         onChange={(e) => setPhone(e.target.value)}
                         className="w-full p-4 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-padel focus:border-transparent outline-none transition-all font-mono text-lg"
-                        placeholder="912345678"
+                        placeholder="912345678 ou Username"
                         autoFocus
                         required
                     />
