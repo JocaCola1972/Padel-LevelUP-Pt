@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useRef } from 'react';
 import { MastersState, MastersTeam, MastersMatch, Player } from '../types';
 import { getMastersState, saveMastersState, getPlayers, generateUUID } from '../services/storageService';
@@ -88,6 +89,15 @@ export const MastersLup: React.FC<MastersLupProps> = ({ isAdmin }) => {
       reader.readAsBinaryString(file);
   };
 
+  // --- HELPER: GET COMBINED POOL (Excel + Members) ---
+  const getCombinedPool = () => {
+      const excelPool = state.pool || [];
+      // Fetch fresh players list or use state
+      const memberNames = getPlayers().map(p => p.name);
+      // Combine and remove duplicates
+      return Array.from(new Set([...excelPool, ...memberNames]));
+  };
+
   // --- SETUP LOGIC ---
 
   const addTeam = () => {
@@ -125,7 +135,7 @@ export const MastersLup: React.FC<MastersLupProps> = ({ isAdmin }) => {
   };
 
   const handleAutoFillRequest = () => {
-      const pool = state.pool || [];
+      const combinedPool = getCombinedPool();
       
       // 1. Identify used players
       const usedPlayers = new Set<string>();
@@ -135,11 +145,11 @@ export const MastersLup: React.FC<MastersLupProps> = ({ isAdmin }) => {
       });
 
       // 2. Filter available players
-      let availablePool = pool.filter(p => !usedPlayers.has(p));
+      let availablePool = combinedPool.filter(p => !usedPlayers.has(p));
 
       // Check if we have enough players roughly
       if (availablePool.length < 2) {
-          alert("Não há jogadores suficientes na lista de elegíveis para criar mais equipas.");
+          alert("Não há jogadores suficientes na lista (Importados + Membros) para criar mais equipas.");
           return;
       }
 
@@ -148,7 +158,7 @@ export const MastersLup: React.FC<MastersLupProps> = ({ isAdmin }) => {
 
   const executeAutoFill = () => {
       const groups = ['I', 'II', 'III', 'IV'] as const;
-      const pool = state.pool || [];
+      const combinedPool = getCombinedPool();
       
       // 1. Identify used players
       const usedPlayers = new Set<string>();
@@ -158,7 +168,7 @@ export const MastersLup: React.FC<MastersLupProps> = ({ isAdmin }) => {
       });
 
       // 2. Filter available players
-      let availablePool = pool.filter(p => !usedPlayers.has(p));
+      let availablePool = combinedPool.filter(p => !usedPlayers.has(p));
 
       // 3. Shuffle Pool (Fisher-Yates)
       for (let i = availablePool.length - 1; i > 0; i--) {
@@ -439,7 +449,11 @@ export const MastersLup: React.FC<MastersLupProps> = ({ isAdmin }) => {
       );
   };
 
+  // --- PREPARE POOL (Excel + Members) ---
+  // Combine both sources and remove duplicates
   const pool = state.pool || [];
+  const memberNames = players.map(p => p.name);
+  const combinedPool = Array.from(new Set([...pool, ...memberNames]));
 
   // Logic to filter used players
   const usedPlayers = new Set<string>();
@@ -448,7 +462,7 @@ export const MastersLup: React.FC<MastersLupProps> = ({ isAdmin }) => {
       if(t.player2Name) usedPlayers.add(t.player2Name);
   });
 
-  const availablePlayers = pool.filter(p => !usedPlayers.has(p)).sort();
+  const availablePlayers = combinedPool.filter(p => !usedPlayers.has(p)).sort((a, b) => a.localeCompare(b));
   const availableForP2 = availablePlayers.filter(p => p !== newTeamP1);
 
   // --- PODIUM CALCULATION ---
@@ -600,7 +614,7 @@ export const MastersLup: React.FC<MastersLupProps> = ({ isAdmin }) => {
                                     />
                                 </div>
                                 <div className="mt-2 text-xs text-gray-500">
-                                    Total elegíveis: <strong>{pool.length}</strong> jogadores.
+                                    Total elegíveis (Importados + Membros): <strong>{combinedPool.length}</strong> jogadores.
                                     <span className="ml-2 bg-gray-200 px-2 py-0.5 rounded text-gray-700">Disponíveis: {availablePlayers.length}</span>
                                 </div>
                             </div>

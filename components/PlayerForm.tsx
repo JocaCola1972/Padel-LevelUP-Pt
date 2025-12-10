@@ -34,6 +34,17 @@ export const PlayerForm: React.FC<PlayerFormProps> = ({ initialMode, onLogin, on
       setPassword('');
   };
 
+  const attemptLogin = (player: Player) => {
+      // Check Approval
+      if (player.isApproved === false) {
+          setError('A tua conta ainda está a aguardar aprovação do administrador.');
+          setRequirePassword(false);
+          setTempPlayer(null);
+          return;
+      }
+      onLogin(player);
+  };
+
   const handleLoginSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
@@ -52,8 +63,8 @@ export const PlayerForm: React.FC<PlayerFormProps> = ({ initialMode, onLogin, on
                 setTempPlayer(existingPlayer);
                 setRequirePassword(true);
             } else {
-                // No password set, login directly
-                onLogin(existingPlayer);
+                // No password set, check approval and login
+                attemptLogin(existingPlayer);
             }
         } else {
             setError('Número não encontrado. Por favor cria a tua ficha primeiro.');
@@ -62,7 +73,7 @@ export const PlayerForm: React.FC<PlayerFormProps> = ({ initialMode, onLogin, on
     // Step 2: Check Password
     else {
         if (tempPlayer && tempPlayer.password === password) {
-            onLogin(tempPlayer);
+            attemptLogin(tempPlayer);
         } else {
             setError('Password incorreta.');
         }
@@ -88,13 +99,18 @@ export const PlayerForm: React.FC<PlayerFormProps> = ({ initialMode, onLogin, on
       phone,
       totalPoints: 0,
       gamesPlayed: 0,
-      participantNumber: 0 // Will be assigned in savePlayer
+      participantNumber: 0, // Will be assigned in savePlayer
+      isApproved: false // Explicitly set pending for new registers via form
     };
 
     savePlayer(newPlayer);
-    // Retrieve again to get the assigned number
-    const saved = getPlayerByPhone(phone);
-    if (saved) onLogin(saved);
+    
+    // After registration, tell user to wait
+    setSuccess('Ficha criada com sucesso! Aguarda a aprovação do administrador para entrar.');
+    setNewName('');
+    setTimeout(() => {
+        switchMode('login');
+    }, 4000);
   };
 
   const handleRecoverSubmit = (e: React.FormEvent) => {
@@ -188,6 +204,7 @@ export const PlayerForm: React.FC<PlayerFormProps> = ({ initialMode, onLogin, on
             )}
 
             {error && <p className="text-red-500 text-sm bg-red-50 p-2 rounded">{error}</p>}
+            {success && <p className="text-green-600 text-sm bg-green-50 p-2 rounded font-bold">{success}</p>}
             
             <Button type="submit" className="w-full py-3 text-lg shadow-lg">
                 {requirePassword ? 'Confirmar Password' : 'Entrar'}
@@ -239,8 +256,9 @@ export const PlayerForm: React.FC<PlayerFormProps> = ({ initialMode, onLogin, on
               />
             </div>
             {error && <p className="text-red-500 text-sm bg-red-50 p-2 rounded">{error}</p>}
+            {success && <p className="text-green-600 text-sm bg-green-50 p-2 rounded font-bold">{success}</p>}
             
-            <Button type="submit" className="w-full py-3 text-lg shadow-lg">Criar Ficha e Entrar</Button>
+            <Button type="submit" className="w-full py-3 text-lg shadow-lg">Criar Ficha</Button>
             
             <p className="text-center text-sm text-gray-500 mt-4">
               Já tens conta? <button type="button" onClick={() => switchMode('login')} className="text-padel-dark font-bold hover:underline">Entrar</button>

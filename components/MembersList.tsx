@@ -1,7 +1,7 @@
 
 import React, { useState, useEffect, useRef } from 'react';
-import { Player, AppState } from '../types';
-import { getPlayers, savePlayer, savePlayersBulk, removePlayer, generateUUID, getAppState, resolvePasswordReset } from '../services/storageService';
+import { Player, AppState, Message } from '../types';
+import { getPlayers, savePlayer, savePlayersBulk, removePlayer, generateUUID, getAppState, resolvePasswordReset, approvePlayer, saveMessage } from '../services/storageService';
 import { Button } from './Button';
 
 // Declaration for SheetJS loaded via CDN
@@ -24,6 +24,11 @@ export const MembersList: React.FC<MembersListProps> = ({ currentUser }) => {
   // Delete Confirmation Modal State
   const [playerToDelete, setPlayerToDelete] = useState<Player | null>(null);
   
+  // Message Modal State
+  const [isMessageModalOpen, setIsMessageModalOpen] = useState(false);
+  const [messageTarget, setMessageTarget] = useState<'ALL' | Player | null>(null);
+  const [messageContent, setMessageContent] = useState('');
+  
   // File Import State
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [importStatus, setImportStatus] = useState('');
@@ -44,6 +49,9 @@ export const MembersList: React.FC<MembersListProps> = ({ currentUser }) => {
     p.participantNumber.toString().includes(searchTerm)
   );
 
+  const pendingApprovalPlayers = filteredPlayers.filter(p => p.isApproved === false);
+  const activePlayers = filteredPlayers.filter(p => p.isApproved !== false);
+
   const handleManualAdd = (e: React.FormEvent) => {
     e.preventDefault();
     if (!newName || newPhone.length < 9) {
@@ -58,7 +66,8 @@ export const MembersList: React.FC<MembersListProps> = ({ currentUser }) => {
         totalPoints: 0,
         gamesPlayed: 0,
         participantNumber: 0, // Assigned in savePlayer
-        role: 'user'
+        role: 'user',
+        isApproved: true // Manually added by admin = Approved
     };
 
     savePlayer(newPlayer);
@@ -101,6 +110,37 @@ export const MembersList: React.FC<MembersListProps> = ({ currentUser }) => {
       }
   };
 
+  // Approval Logic
+  const handleApprove = (player: Player) => {
+      approvePlayer(player.id);
+      loadPlayers();
+  };
+
+  // Message Logic
+  const openMessageModal = (target: 'ALL' | Player) => {
+      setMessageTarget(target);
+      setMessageContent('');
+      setIsMessageModalOpen(true);
+  };
+
+  const handleSendMessage = () => {
+      if (!currentUser || !messageContent.trim()) return;
+
+      const newMessage: Message = {
+          id: generateUUID(),
+          senderId: currentUser.id,
+          senderName: currentUser.name,
+          receiverId: messageTarget === 'ALL' ? 'ALL' : (messageTarget as Player).id,
+          content: messageContent,
+          timestamp: Date.now(),
+          read: false
+      };
+
+      saveMessage(newMessage);
+      alert("Mensagem enviada com sucesso!");
+      setIsMessageModalOpen(false);
+  };
+
   // Handle Requests
   const handleResolveRequest = (reqId: string, approve: boolean) => {
       resolvePasswordReset(reqId, approve);
@@ -120,7 +160,8 @@ export const MembersList: React.FC<MembersListProps> = ({ currentUser }) => {
           'Telemóvel': p.phone,
           'Jogos': p.gamesPlayed,
           'Pontos': p.totalPoints,
-          'Função': p.role === 'super_admin' ? 'Super Admin' : p.role === 'admin' ? 'Admin' : 'Utilizador'
+          'Função': p.role === 'super_admin' ? 'Super Admin' : p.role === 'admin' ? 'Admin' : 'Utilizador',
+          'Estado': p.isApproved === false ? 'Pendente' : 'Ativo'
       }));
 
       const ws = XLSX.utils.json_to_sheet(data);
@@ -198,7 +239,8 @@ export const MembersList: React.FC<MembersListProps> = ({ currentUser }) => {
                 if (rawName && rawPhone.length >= 9) {
                     playersToImport.push({
                         name: rawName,
-                        phone: rawPhone
+                        phone: rawPhone,
+                        isApproved: true // Imported = Approved
                     });
                 }
             }
@@ -233,12 +275,15 @@ export const MembersList: React.FC<MembersListProps> = ({ currentUser }) => {
       <div className="bg-white p-6 rounded-xl shadow-lg border-l-4 border-padel-blue">
         <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
             <div>
-                <h2 className="text-2xl font-bold text-gray-800">👥 Membros LevelUp</h2>
-                <p className="text-sm text-gray-500">Diretório de todos os jogadores registados.</p>
+                <h2 className="text-2xl font-bold text-gray-800">👥 Base de Dados</h2>
+                <p className="text-sm text-gray-500">Gestão de utilizadores e aprovações.</p>
             </div>
             
             {isAnyAdmin && (
                 <div className="flex flex-wrap gap-2 w-full md:w-auto">
+                    <Button onClick={() => openMessageModal('ALL')} className="bg-purple-600 hover:bg-purple-700 shadow-purple-200">
+                         📢 Enviar Broadcast
+                    </Button>
                     <Button onClick={() => setIsAddModalOpen(true)}>
                         + Novo Membro
                     </Button>
@@ -356,7 +401,7 @@ export const MembersList: React.FC<MembersListProps> = ({ currentUser }) => {
                       </div>
                       <div className="flex gap-2 pt-2">
                           <Button type="button" variant="ghost" onClick={() => setIsAddModalOpen(false)} className="flex-1">Cancelar</Button>
-                          <Button type="submit" className="flex-1">Gravar</Button>
+                          <Button type="submit" className="flex-1">Gravar e Aprovar</Button>
                       </div>
                   </form>
               </div>
@@ -401,13 +446,56 @@ export const MembersList: React.FC<MembersListProps> = ({ currentUser }) => {
           </div>
       )}
 
-      {/* Members List */}
+      {/* Send Message Modal */}
+      {isMessageModalOpen && (
+          <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4 animate-fade-in backdrop-blur-sm">
+              <div className="bg-white rounded-xl shadow-2xl p-6 w-full max-w-md">
+                  <h3 className="text-xl font-bold mb-4">
+                      {messageTarget === 'ALL' ? '📢 Enviar para Todos (Broadcast)' : `💬 Mensagem para ${(messageTarget as Player).name}`}
+                  </h3>
+                  <textarea 
+                    value={messageContent}
+                    onChange={(e) => setMessageContent(e.target.value)}
+                    className="w-full p-3 border rounded-lg h-32 mb-4 focus:ring-2 focus:ring-padel outline-none resize-none"
+                    placeholder="Escreva a sua mensagem aqui..."
+                  ></textarea>
+                  <div className="flex gap-3">
+                      <Button variant="ghost" onClick={() => setIsMessageModalOpen(false)} className="flex-1">Cancelar</Button>
+                      <Button onClick={handleSendMessage} className="flex-1" disabled={!messageContent.trim()}>Enviar</Button>
+                  </div>
+              </div>
+          </div>
+      )}
+
+      {/* Pending Approvals Section */}
+      {isAnyAdmin && pendingApprovalPlayers.length > 0 && (
+          <div className="bg-orange-50 rounded-xl shadow overflow-hidden border border-orange-200 mb-6">
+              <div className="bg-orange-100 px-4 py-2 border-b border-orange-200 text-xs font-bold text-orange-800 uppercase flex justify-between">
+                  <span>⏳ Pendentes de Aprovação ({pendingApprovalPlayers.length})</span>
+              </div>
+              <div className="divide-y divide-orange-100">
+                  {pendingApprovalPlayers.map(player => (
+                      <div key={player.id} className="p-4 flex items-center justify-between">
+                          <div>
+                              <h4 className="font-bold text-gray-900">{player.name}</h4>
+                              <p className="text-xs text-gray-500 font-mono">#{player.participantNumber} • {player.phone}</p>
+                          </div>
+                          <Button onClick={() => handleApprove(player)} className="bg-green-600 hover:bg-green-700 text-xs">
+                              ✅ Aprovar
+                          </Button>
+                      </div>
+                  ))}
+              </div>
+          </div>
+      )}
+
+      {/* Active Members List */}
       <div className="bg-white/95 backdrop-blur rounded-xl shadow overflow-hidden border border-white/20">
         <div className="bg-gray-100 px-4 py-2 border-b border-gray-200 text-xs font-bold text-gray-500 uppercase flex justify-between">
-            <span>Total: {filteredPlayers.length} membros</span>
+            <span>Utilizadores Ativos: {activePlayers.length}</span>
         </div>
         <div className="divide-y divide-gray-100">
-            {filteredPlayers.map(player => (
+            {activePlayers.map(player => (
                 <div key={player.id} className="p-4 hover:bg-gray-50 flex flex-col sm:flex-row sm:items-center justify-between group transition-colors gap-3">
                     <div className="flex items-center gap-4">
                         <div className="w-10 h-10 rounded-full bg-padel-blue/10 border border-padel-blue/20 overflow-hidden flex-shrink-0 relative">
@@ -435,6 +523,17 @@ export const MembersList: React.FC<MembersListProps> = ({ currentUser }) => {
                     
                     {isAnyAdmin && (
                         <div className="flex items-center gap-3 justify-end mt-2 sm:mt-0">
+                            {/* Message Button */}
+                            {currentUser?.id !== player.id && (
+                                <button
+                                    onClick={() => openMessageModal(player)}
+                                    className="p-2 text-gray-400 hover:text-blue-500 hover:bg-blue-50 rounded-full transition-all"
+                                    title="Enviar Mensagem"
+                                >
+                                    💬
+                                </button>
+                            )}
+
                             {/* Super Admin Actions */}
                             {currentUser?.role === 'super_admin' && player.id !== currentUser.id && (
                                 <>
@@ -446,24 +545,18 @@ export const MembersList: React.FC<MembersListProps> = ({ currentUser }) => {
                                             : 'bg-blue-100 text-blue-700 hover:bg-blue-200'
                                         }`}
                                     >
-                                        {player.role === 'admin' ? 'Despromover' : 'Promover a Admin'}
+                                        {player.role === 'admin' ? 'Despromover' : 'Promover'}
                                     </button>
                                     
-                                    {/* Reset Password Button */}
                                     <button
                                         onClick={() => resetUserPassword(player)}
                                         className="p-2 text-gray-400 hover:text-orange-500 hover:bg-orange-50 rounded-full transition-all"
-                                        title="Reset Password (Apagar)"
+                                        title="Reset Password"
                                     >
                                         🔐
                                     </button>
                                 </>
                             )}
-
-                            <div className="text-right hidden sm:block mr-2">
-                                <div className="text-xs text-gray-400">Jogos: <span className="text-gray-600 font-bold">{player.gamesPlayed}</span></div>
-                                <div className="text-xs text-gray-400">Pts: <span className="text-padel-dark font-bold">{player.totalPoints}</span></div>
-                            </div>
                             
                             <button 
                                 onClick={() => setPlayerToDelete(player)}
@@ -476,9 +569,9 @@ export const MembersList: React.FC<MembersListProps> = ({ currentUser }) => {
                     )}
                 </div>
             ))}
-            {filteredPlayers.length === 0 && (
+            {activePlayers.length === 0 && (
                 <div className="p-8 text-center text-gray-400">
-                    Nenhum membro encontrado.
+                    Nenhum membro ativo encontrado.
                 </div>
             )}
         </div>

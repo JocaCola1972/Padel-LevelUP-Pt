@@ -1,12 +1,13 @@
 
-import { Player, Registration, MatchRecord, AppState, Shift, CourtAllocation, MastersState, PasswordResetRequest } from '../types';
+import { Player, Registration, MatchRecord, AppState, Shift, CourtAllocation, MastersState, PasswordResetRequest, Message } from '../types';
 
 const KEYS = {
   PLAYERS: 'padel_players',
   REGISTRATIONS: 'padel_registrations',
   MATCHES: 'padel_matches',
   STATE: 'padel_state',
-  MASTERS: 'padel_masters'
+  MASTERS: 'padel_masters',
+  MESSAGES: 'padel_messages'
 };
 
 // Utility for ID generation (Compatible with all browsers)
@@ -62,12 +63,24 @@ export const getPlayers = (): Player[] => {
           const adminIndex = players.findIndex(p => p.role === 'admin');
           if (adminIndex >= 0) {
               players[adminIndex].role = 'super_admin';
+              players[adminIndex].isApproved = true; // Super admin always approved
           } else {
               // If no admins at all, promote the very first user
               players[0].role = 'super_admin';
+              players[0].isApproved = true;
           }
           localStorage.setItem(KEYS.PLAYERS, JSON.stringify(players));
       }
+
+      // Migration: Ensure 'isApproved' exists for everyone. Default true for existing users (legacy support)
+      let needsSave = false;
+      players.forEach(p => {
+          if (p.isApproved === undefined) {
+              p.isApproved = true;
+              needsSave = true;
+          }
+      });
+      if (needsSave) localStorage.setItem(KEYS.PLAYERS, JSON.stringify(players));
   }
 
   return players;
@@ -97,35 +110,51 @@ export const savePlayer = (player: Player): void => {
         const maxNum = players.reduce((max, p) => Math.max(max, p.participantNumber || 0), 0);
         players[index].participantNumber = maxNum + 1;
     }
-    // Preserve existing role if not specified in update, unless explicitly changed in the object passed
-    // NOTE: When updating profile from ProfileModal, role might be undefined, so keep current.
-    // When updating from MembersList (admin action), role will be set.
+    
+    // Preserve existing role and approval status unless explicit logic elsewhere changes it
     const currentRole = players[index].role || 'user';
+    const currentApproved = players[index].isApproved ?? true;
+
     players[index] = { 
         ...players[index], 
         ...player, 
         participantNumber: players[index].participantNumber, 
-        role: player.role || currentRole 
+        role: player.role || currentRole,
+        isApproved: player.isApproved !== undefined ? player.isApproved : currentApproved
     };
   } else {
     // New player
     const maxNum = players.reduce((max, p) => Math.max(max, p.participantNumber || 0), 0);
     player.participantNumber = maxNum + 1;
     
-    // First player ever becomes Super Admin
+    // First player ever becomes Super Admin and Approved
     if (players.length === 0) {
         player.role = 'super_admin';
+        player.isApproved = true;
     } else {
         player.role = 'user';
+        // New users default to FALSE (Pending) unless manually created by admin logic elsewhere
+        if (player.isApproved === undefined) {
+             player.isApproved = false;
+        }
     }
 
-    // Ensure ID is generated if not present (although passed in, let's be safe)
+    // Ensure ID is generated if not present
     if (!player.id) player.id = generateUUID();
 
     players.push(player);
   }
   
   localStorage.setItem(KEYS.PLAYERS, JSON.stringify(players));
+};
+
+export const approvePlayer = (playerId: string): void => {
+    const players = getPlayers();
+    const index = players.findIndex(p => p.id === playerId);
+    if (index >= 0) {
+        players[index].isApproved = true;
+        localStorage.setItem(KEYS.PLAYERS, JSON.stringify(players));
+    }
 };
 
 export const removePlayer = (playerId: string): void => {
@@ -135,7 +164,6 @@ export const removePlayer = (playerId: string): void => {
     localStorage.setItem(KEYS.PLAYERS, JSON.stringify(players));
 
     // 2. Remove FUTURE registrations for this player
-    // We keep past data or matches for history integrity, but remove active registrations
     let regs = getRegistrations();
     regs = regs.filter(r => r.playerId !== playerId && r.partnerId !== playerId);
     localStorage.setItem(KEYS.REGISTRATIONS, JSON.stringify(regs));
@@ -155,8 +183,6 @@ export const savePlayersBulk = (newPlayers: Partial<Player>[]): { added: number,
         const index = players.findIndex(p => p.phone === cleanPhone);
 
         if (index >= 0) {
-            // Update existing? Just skip or update name? Let's update name if provided
-            // We do not overwrite points or existing participant number
             if (np.name && players[index].name !== np.name) {
                 players[index].name = np.name;
                 updated++;
@@ -173,7 +199,8 @@ export const savePlayersBulk = (newPlayers: Partial<Player>[]): { added: number,
                 totalPoints: 0,
                 gamesPlayed: 0,
                 participantNumber: maxNum,
-                role: isFirst ? 'super_admin' : 'user'
+                role: isFirst ? 'super_admin' : 'user',
+                isApproved: true // Imported users are considered "Admin-approved" by default
             });
             added++;
         }
@@ -196,7 +223,6 @@ export const getRegistrations = (): Registration[] => {
 
 export const addRegistration = (reg: Registration): void => {
   const regs = getRegistrations();
-  // Avoid duplicates for same shift
   if (!regs.find(r => r.playerId === reg.playerId && r.shift === reg.shift && r.date === reg.date)) {
     regs.push(reg);
     localStorage.setItem(KEYS.REGISTRATIONS, JSON.stringify(regs));
@@ -230,7 +256,6 @@ export const addMatch = (match: MatchRecord, points: number): void => {
   matches.push(match);
   localStorage.setItem(KEYS.MATCHES, JSON.stringify(matches));
 
-  // Update player points immediately
   const players = getPlayers();
   match.playerIds.forEach(pid => {
     const pIndex = players.findIndex(p => p.id === pid);
@@ -242,14 +267,81 @@ export const addMatch = (match: MatchRecord, points: number): void => {
   localStorage.setItem(KEYS.PLAYERS, JSON.stringify(players));
 };
 
+// --- Messaging System ---
+
+export const getMessages = (): Message[] => {
+    const data = localStorage.getItem(KEYS.MESSAGES);
+    return data ? JSON.parse(data) : [];
+};
+
+export const saveMessage = (msg: Message): void => {
+    const messages = getMessages();
+    messages.push(msg);
+    localStorage.setItem(KEYS.MESSAGES, JSON.stringify(messages));
+};
+
+export const getMessagesForUser = (userId: string): Message[] => {
+    const messages = getMessages();
+    // Return messages specifically for this user OR broadcast messages ('ALL')
+    // Sort by timestamp descending
+    return messages
+        .filter(m => m.receiverId === userId || m.receiverId === 'ALL')
+        .sort((a, b) => b.timestamp - a.timestamp);
+};
+
+export const markMessageAsRead = (messageId: string, userId: string): void => {
+    // Note: For broadcast messages, marking as "read" in a simple localstorage array is tricky 
+    // because one message object is shared by all.
+    // For simplicity in this prototype:
+    // 1. Direct messages: Update the 'read' flag on the message.
+    // 2. Broadcast messages: We will store a separate "read_broadcasts" list in LocalStorage for the user.
+    
+    const messages = getMessages();
+    const msgIndex = messages.findIndex(m => m.id === messageId);
+    
+    if (msgIndex >= 0) {
+        const msg = messages[msgIndex];
+        if (msg.receiverId === userId) {
+            // Direct message
+            messages[msgIndex].read = true;
+            localStorage.setItem(KEYS.MESSAGES, JSON.stringify(messages));
+        } else if (msg.receiverId === 'ALL') {
+            // Broadcast message - Use a separate key to track reads for this user
+            const readKey = `padel_read_broadcasts_${userId}`;
+            const readListData = localStorage.getItem(readKey);
+            const readList: string[] = readListData ? JSON.parse(readListData) : [];
+            if (!readList.includes(messageId)) {
+                readList.push(messageId);
+                localStorage.setItem(readKey, JSON.stringify(readList));
+            }
+        }
+    }
+};
+
+export const getUnreadCount = (userId: string): number => {
+    const allMsgs = getMessagesForUser(userId);
+    
+    // Get read broadcasts
+    const readKey = `padel_read_broadcasts_${userId}`;
+    const readListData = localStorage.getItem(readKey);
+    const readBroadcasts: string[] = readListData ? JSON.parse(readListData) : [];
+
+    return allMsgs.reduce((count, msg) => {
+        if (msg.receiverId === 'ALL') {
+            return readBroadcasts.includes(msg.id) ? count : count + 1;
+        } else {
+            return msg.read ? count : count + 1;
+        }
+    }, 0);
+};
+
+
 // --- App State ---
 
 export const getAppState = (): AppState => {
   const data = localStorage.getItem(KEYS.STATE);
   if (data) {
     const parsed = JSON.parse(data);
-    
-    // Migration 1: Handle old numeric gamesPerShift
     let gamesPerShift = parsed.gamesPerShift;
     if (typeof gamesPerShift === 'number' || !gamesPerShift) {
         const val = typeof gamesPerShift === 'number' ? gamesPerShift : 5;
@@ -259,8 +351,6 @@ export const getAppState = (): AppState => {
             [Shift.MORNING_3]: val
         };
     }
-
-    // Migration 2: Handle old activeCourts -> new courtConfig
     let courtConfig = parsed.courtConfig;
     if (!courtConfig) {
         const oldActive = parsed.activeCourts || 4;
@@ -270,10 +360,7 @@ export const getAppState = (): AppState => {
             [Shift.MORNING_3]: { game: oldActive, training: 0 },
         };
     }
-    
-    // Migration 3: Ensure passwordResetRequests exists
     let passwordResetRequests = parsed.passwordResetRequests || [];
-
     return { ...defaultState, ...parsed, gamesPerShift, courtConfig, passwordResetRequests };
   }
   return defaultState;
@@ -289,14 +376,10 @@ export const updateAppState = (newState: Partial<AppState>): void => {
 export const requestPasswordReset = (phone: string): boolean => {
     const player = getPlayerByPhone(phone);
     if (!player) return false;
-
     const state = getAppState();
-    
-    // Check if already requested
     if (state.passwordResetRequests.find(r => r.playerId === player.id)) {
-        return true; // Already pending, treat as success
+        return true;
     }
-
     const newRequest: PasswordResetRequest = {
         id: generateUUID(),
         playerId: player.id,
@@ -304,29 +387,23 @@ export const requestPasswordReset = (phone: string): boolean => {
         playerPhone: player.phone,
         timestamp: Date.now()
     };
-
     updateAppState({
         passwordResetRequests: [...state.passwordResetRequests, newRequest]
     });
-
     return true;
 };
 
 export const resolvePasswordReset = (requestId: string, approve: boolean): void => {
     const state = getAppState();
     const req = state.passwordResetRequests.find(r => r.id === requestId);
-    
     if (req && approve) {
-        // Find player and remove password
         const players = getPlayers();
         const pIndex = players.findIndex(p => p.id === req.playerId);
         if (pIndex >= 0) {
-            players[pIndex].password = undefined; // Reset to no password
+            players[pIndex].password = undefined; 
             localStorage.setItem(KEYS.PLAYERS, JSON.stringify(players));
         }
     }
-
-    // Remove request from queue
     const updatedRequests = state.passwordResetRequests.filter(r => r.id !== requestId);
     updateAppState({ passwordResetRequests: updatedRequests });
 };

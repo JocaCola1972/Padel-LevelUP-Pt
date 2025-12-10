@@ -11,8 +11,9 @@ import { LandingPage } from './components/LandingPage';
 import { MembersList } from './components/MembersList';
 import { ProfileModal } from './components/ProfileModal';
 import { MastersLup } from './components/MastersLup';
+import { NotificationModal } from './components/NotificationModal';
 import { generateTacticalTip } from './services/geminiService';
-import { getAppState } from './services/storageService';
+import { getAppState, getUnreadCount } from './services/storageService';
 
 enum Tab {
   REGISTRATION = 'registrations',
@@ -39,9 +40,11 @@ const App: React.FC = () => {
   const [tip, setTip] = useState<string>('');
   
   const [isProfileOpen, setIsProfileOpen] = useState(false);
+  const [isNotificationsOpen, setIsNotificationsOpen] = useState(false);
   
   // Notification State
   const [pendingRequestsCount, setPendingRequestsCount] = useState(0);
+  const [unreadMessagesCount, setUnreadMessagesCount] = useState(0);
 
   useEffect(() => {
     // Load AI tip on mount
@@ -51,13 +54,18 @@ const App: React.FC = () => {
     const checkNotifications = () => {
         const state = getAppState();
         setPendingRequestsCount(state.passwordResetRequests?.length || 0);
+        
+        if (currentUser) {
+            const unread = getUnreadCount(currentUser.id);
+            setUnreadMessagesCount(unread);
+        }
     };
     
     checkNotifications();
     const interval = setInterval(checkNotifications, 5000);
     return () => clearInterval(interval);
 
-  }, []);
+  }, [currentUser]);
 
   const handleNavigateFromLanding = (mode: 'login' | 'register') => {
     setAuthMode(mode);
@@ -108,33 +116,49 @@ const App: React.FC = () => {
           <div>
             <h1 className="text-xl font-black italic text-padel-dark tracking-tight transform -skew-x-6">Padel LevelUp</h1>
           </div>
-          <div 
-            className="text-right flex items-center gap-3 group cursor-pointer p-1 rounded hover:bg-gray-50 transition-colors" 
-            onClick={() => setIsProfileOpen(true)} 
-            title="Ver Perfil"
-          >
-            <div className="flex flex-col items-end">
-                <span className="text-[10px] uppercase tracking-wider text-gray-500">#{currentUser.participantNumber}</span>
-                <div className="font-bold text-sm leading-tight text-gray-800">
-                    {currentUser.name}
-                </div>
-            </div>
-            
-            <div className="w-10 h-10 rounded-full border-2 border-padel overflow-hidden bg-gray-100 flex-shrink-0 relative">
-                {currentUser.photoUrl ? (
-                    <img src={currentUser.photoUrl} alt={currentUser.name} className="w-full h-full object-cover" />
-                ) : (
-                    <div className="w-full h-full flex items-center justify-center bg-padel-light/20 text-padel-dark text-lg">
-                        👤
+          <div className="flex items-center gap-4">
+              
+              {/* Notification Bell */}
+              <button 
+                onClick={() => setIsNotificationsOpen(true)}
+                className="relative p-2 text-gray-500 hover:text-gray-700 transition-colors"
+              >
+                  <span className="text-2xl">🔔</span>
+                  {unreadMessagesCount > 0 && (
+                      <span className="absolute top-0 right-0 bg-red-500 text-white text-[9px] font-bold px-1.5 py-0.5 rounded-full animate-bounce">
+                          {unreadMessagesCount}
+                      </span>
+                  )}
+              </button>
+
+              <div 
+                className="text-right flex items-center gap-3 group cursor-pointer p-1 rounded hover:bg-gray-50 transition-colors" 
+                onClick={() => setIsProfileOpen(true)} 
+                title="Ver Perfil"
+              >
+                <div className="flex flex-col items-end">
+                    <span className="text-[10px] uppercase tracking-wider text-gray-500">#{currentUser.participantNumber}</span>
+                    <div className="font-bold text-sm leading-tight text-gray-800">
+                        {currentUser.name}
                     </div>
-                )}
-                {currentUser.role === 'super_admin' && (
-                  <div className="absolute -bottom-1 -right-1 bg-purple-600 text-white text-[8px] px-1 rounded-full border border-white font-bold">SP</div>
-                )}
-                {currentUser.role === 'admin' && (
-                  <div className="absolute -bottom-1 -right-1 bg-blue-600 text-white text-[8px] px-1 rounded-full border border-white font-bold">AD</div>
-                )}
-            </div>
+                </div>
+                
+                <div className="w-10 h-10 rounded-full border-2 border-padel overflow-hidden bg-gray-100 flex-shrink-0 relative">
+                    {currentUser.photoUrl ? (
+                        <img src={currentUser.photoUrl} alt={currentUser.name} className="w-full h-full object-cover" />
+                    ) : (
+                        <div className="w-full h-full flex items-center justify-center bg-padel-light/20 text-padel-dark text-lg">
+                            👤
+                        </div>
+                    )}
+                    {currentUser.role === 'super_admin' && (
+                    <div className="absolute -bottom-1 -right-1 bg-purple-600 text-white text-[8px] px-1 rounded-full border border-white font-bold">SP</div>
+                    )}
+                    {currentUser.role === 'admin' && (
+                    <div className="absolute -bottom-1 -right-1 bg-blue-600 text-white text-[8px] px-1 rounded-full border border-white font-bold">AD</div>
+                    )}
+                </div>
+              </div>
           </div>
         </div>
       </header>
@@ -230,6 +254,18 @@ const App: React.FC = () => {
             onClose={() => setIsProfileOpen(false)}
             onUpdate={setCurrentUser}
             onLogout={handleLogout}
+          />
+      )}
+
+      {/* Notifications Modal */}
+      {isNotificationsOpen && (
+          <NotificationModal 
+            currentUser={currentUser}
+            onClose={() => {
+                setIsNotificationsOpen(false);
+                // Force refresh unread count immediately after closing
+                setUnreadMessagesCount(getUnreadCount(currentUser.id));
+            }}
           />
       )}
     </div>

@@ -21,6 +21,7 @@ export interface Player {
   participantNumber: number; // New permanent ID
   role?: 'super_admin' | 'admin' | 'user';
   photoUrl?: string; // Base64 profile photo string
+  isApproved?: boolean; // New: Requires admin approval to login
 }
 
 export interface Registration {
@@ -57,6 +58,16 @@ export interface PasswordResetRequest {
   playerName: string;
   playerPhone: string;
   timestamp: number;
+}
+
+export interface Message {
+  id: string;
+  senderId: string;
+  senderName: string;
+  receiverId: string; // 'ALL' for broadcast, or UUID for specific user
+  content: string;
+  timestamp: number;
+  read: boolean; // Only relevant for individual messages logic essentially, but stored here
 }
 
 export interface AppState {
