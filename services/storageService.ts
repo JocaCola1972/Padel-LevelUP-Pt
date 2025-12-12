@@ -16,6 +16,9 @@ const KEYS = {
 // --- FIREBASE SYNC LOGIC ---
 let db: Firestore | null = null;
 let app: FirebaseApp | null = null;
+let isConnected = false;
+
+export const isFirebaseConnected = () => isConnected;
 
 export const initCloudSync = () => {
     const configStr = localStorage.getItem(KEYS.FIREBASE_CONFIG);
@@ -30,9 +33,11 @@ export const initCloudSync = () => {
         }
         db = getFirestore(app);
         console.log("🔥 Firebase initialized! Syncing...");
+        isConnected = true;
         startListeners();
     } catch (e) {
         console.error("Firebase Init Error:", e);
+        isConnected = false;
     }
 };
 
@@ -43,36 +48,36 @@ const startListeners = () => {
     onSnapshot(collection(db, KEYS.PLAYERS), (snapshot) => {
         const remotePlayers: Player[] = [];
         snapshot.forEach(doc => remotePlayers.push(doc.data() as Player));
-        if (remotePlayers.length > 0) {
+        // Only update local if we have data remote, or if we want to sync deletions (complex)
+        // For simple sync, "server wins" on list updates is safest to propagate changes
+        if (remotePlayers.length > 0 || snapshot.empty) {
+            // Merge logic could be better, but replacement ensures consistency
             localStorage.setItem(KEYS.PLAYERS, JSON.stringify(remotePlayers));
         }
+    }, (error) => {
+        console.error("Sync Error Players:", error);
+        isConnected = false;
     });
 
     // Listen to REGISTRATIONS
     onSnapshot(collection(db, KEYS.REGISTRATIONS), (snapshot) => {
         const remoteRegs: Registration[] = [];
         snapshot.forEach(doc => remoteRegs.push(doc.data() as Registration));
-        if (remoteRegs.length > 0) {
-            localStorage.setItem(KEYS.REGISTRATIONS, JSON.stringify(remoteRegs));
-        }
+        localStorage.setItem(KEYS.REGISTRATIONS, JSON.stringify(remoteRegs));
     });
 
     // Listen to MATCHES
     onSnapshot(collection(db, KEYS.MATCHES), (snapshot) => {
         const remoteMatches: MatchRecord[] = [];
         snapshot.forEach(doc => remoteMatches.push(doc.data() as MatchRecord));
-        if (remoteMatches.length > 0) {
-            localStorage.setItem(KEYS.MATCHES, JSON.stringify(remoteMatches));
-        }
+        localStorage.setItem(KEYS.MATCHES, JSON.stringify(remoteMatches));
     });
     
     // Listen to MESSAGES
     onSnapshot(collection(db, KEYS.MESSAGES), (snapshot) => {
         const remoteMsgs: Message[] = [];
         snapshot.forEach(doc => remoteMsgs.push(doc.data() as Message));
-        if (remoteMsgs.length > 0) {
-            localStorage.setItem(KEYS.MESSAGES, JSON.stringify(remoteMsgs));
-        }
+        localStorage.setItem(KEYS.MESSAGES, JSON.stringify(remoteMsgs));
     });
 
     // Listen to APP STATE (Singleton Document)
@@ -266,17 +271,12 @@ export const removePlayer = (playerId: string): void => {
     let players = getPlayers();
     players = players.filter(p => p.id !== playerId);
     localStorage.setItem(KEYS.PLAYERS, JSON.stringify(players));
-    // Firestore delete is tricky with just setDoc, we need deleteDoc logic or soft delete.
-    // For this simple sync, we might leave it or use a separate delete call.
-    // Simulating delete by sync is complex here without full delete logic, but let's assume valid for now.
     
-    // Also remove registrations
     let regs = getRegistrations();
     regs = regs.filter(r => r.playerId !== playerId && r.partnerId !== playerId);
     localStorage.setItem(KEYS.REGISTRATIONS, JSON.stringify(regs));
     
-    // Sync logic for deletion would require deleteDoc, skipping for brevity in this hybrid model
-    // ideally: deleteDoc(doc(db, KEYS.PLAYERS, playerId));
+    // In a real app we would call deleteDoc here
 };
 
 export const savePlayersBulk = (newPlayers: Partial<Player>[]): { added: number, updated: number } => {
@@ -353,7 +353,7 @@ export const removeRegistration = (id: string): void => {
   let regs = getRegistrations();
   regs = regs.filter(r => r.id !== id);
   localStorage.setItem(KEYS.REGISTRATIONS, JSON.stringify(regs));
-  // Requires deleteDoc for cloud
+  // In a real app we would call deleteDoc here
 };
 
 // --- Matches & Points ---

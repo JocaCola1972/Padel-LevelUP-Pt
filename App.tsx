@@ -13,7 +13,7 @@ import { ProfileModal } from './components/ProfileModal';
 import { MastersLup } from './components/MastersLup';
 import { NotificationModal } from './components/NotificationModal';
 import { generateTacticalTip } from './services/geminiService';
-import { getAppState, getUnreadCount, initCloudSync } from './services/storageService';
+import { getAppState, getUnreadCount, initCloudSync, saveFirebaseConfig, isFirebaseConnected } from './services/storageService';
 
 enum Tab {
   REGISTRATION = 'registrations',
@@ -46,17 +46,43 @@ const App: React.FC = () => {
   const [pendingRequestsCount, setPendingRequestsCount] = useState(0);
   const [unreadMessagesCount, setUnreadMessagesCount] = useState(0);
 
-  useEffect(() => {
-    // Start Cloud Sync if configured
-    initCloudSync();
+  // Sync State
+  const [isSyncing, setIsSyncing] = useState(false);
 
-    // Load AI tip on mount
+  useEffect(() => {
+    // 1. Check for Config Link in URL (?cfg=...)
+    const params = new URLSearchParams(window.location.search);
+    const configParam = params.get('cfg');
+    
+    if (configParam) {
+        try {
+            const configStr = atob(configParam);
+            // Validate JSON
+            JSON.parse(configStr);
+            saveFirebaseConfig(configStr);
+            alert("✅ App Conectada à Cloud com sucesso! A reiniciar...");
+            // Clean URL
+            window.history.replaceState({}, document.title, "/");
+            window.location.reload();
+            return;
+        } catch (e) {
+            console.error("Invalid config param", e);
+            alert("Link de configuração inválido.");
+        }
+    }
+
+    // 2. Start Cloud Sync
+    initCloudSync();
+    setIsSyncing(isFirebaseConnected());
+
+    // 3. Load AI tip
     generateTacticalTip().then(setTip);
 
-    // Check for notifications periodically
+    // 4. Check for notifications periodically
     const checkNotifications = () => {
         const state = getAppState();
         setPendingRequestsCount(state.passwordResetRequests?.length || 0);
+        setIsSyncing(isFirebaseConnected()); // Refresh sync status display
         
         if (currentUser) {
             const unread = getUnreadCount(currentUser.id);
@@ -78,7 +104,6 @@ const App: React.FC = () => {
   const handleLoginSuccess = (player: Player) => {
     setCurrentUser(player);
     setViewState(ViewState.APP);
-    // If they registered new, registration tab is good. If they logged in, registration tab is also good.
     setActiveTab(Tab.REGISTRATION);
   };
 
@@ -105,9 +130,8 @@ const App: React.FC = () => {
   }
 
   // App View
-  if (!currentUser) return null; // Should not happen
+  if (!currentUser) return null;
 
-  // Helper to check if user has ANY admin privileges
   const isAnyAdmin = currentUser.role === 'admin' || currentUser.role === 'super_admin';
   const isSuperAdmin = currentUser.role === 'super_admin';
 
@@ -116,8 +140,12 @@ const App: React.FC = () => {
       {/* Header */}
       <header className="bg-white/95 backdrop-blur shadow-sm sticky top-0 z-10 border-b border-gray-200">
         <div className="max-w-md mx-auto px-4 py-3 flex justify-between items-center">
-          <div>
+          <div className="flex items-center gap-2">
             <h1 className="text-xl font-black italic text-padel-dark tracking-tight transform -skew-x-6">Padel LevelUp</h1>
+            <div 
+                className={`w-2.5 h-2.5 rounded-full ${isSyncing ? 'bg-green-500 shadow-[0_0_5px_#22c55e]' : 'bg-gray-300'}`} 
+                title={isSyncing ? "Online (Sincronizado)" : "Modo Offline (Local)"}
+            ></div>
           </div>
           <div className="flex items-center gap-4">
               
@@ -181,7 +209,7 @@ const App: React.FC = () => {
         {activeTab === Tab.MATCHES && <MatchTracker currentUser={currentUser} />}
         {activeTab === Tab.RANKING && <RankingTable />}
         
-        {/* Protected Tabs - Only Render if Admin */}
+        {/* Protected Tabs */}
         {activeTab === Tab.MASTERS && isAnyAdmin && <MastersLup isAdmin={isAnyAdmin} />}
         {activeTab === Tab.MEMBERS && isAnyAdmin && <MembersList currentUser={currentUser} />}
         {activeTab === Tab.ADMIN && isAnyAdmin && <AdminPanel />}
@@ -266,7 +294,6 @@ const App: React.FC = () => {
             currentUser={currentUser}
             onClose={() => {
                 setIsNotificationsOpen(false);
-                // Force refresh unread count immediately after closing
                 setUnreadMessagesCount(getUnreadCount(currentUser.id));
             }}
           />

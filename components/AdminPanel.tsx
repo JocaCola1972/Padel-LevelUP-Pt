@@ -131,6 +131,32 @@ export const AdminPanel: React.FC = () => {
       }
   };
 
+  const handleShareConfig = () => {
+      const config = getFirebaseConfig();
+      if (!config) {
+          alert("Configure o Firebase primeiro.");
+          return;
+      }
+      try {
+          // Create Base64 Encoded Config URL
+          const encoded = btoa(config);
+          const url = `${window.location.origin}${window.location.pathname}?cfg=${encoded}`;
+          
+          if (navigator.share) {
+              navigator.share({
+                  title: 'Configuração Padel LevelUp',
+                  text: 'Abre este link para ligar a app ao servidor:',
+                  url: url
+              });
+          } else {
+              navigator.clipboard.writeText(url);
+              alert("Link copiado para a área de transferência! Envia aos outros utilizadores.");
+          }
+      } catch (e) {
+          alert("Erro ao gerar link.");
+      }
+  };
+
   // Trigger Delete Modal
   const initiateDeleteRegistration = (reg: Registration, playerName: string) => {
       setRegToDelete({ reg, mainPlayerName: playerName });
@@ -307,12 +333,12 @@ export const AdminPanel: React.FC = () => {
                      {showConfig ? 'Ocultar' : 'Configurar'}
                  </button>
              </div>
-             <p className="text-xs text-blue-800 mb-3">
-                 Para partilhar a App e ter dados sincronizados, cole aqui a configuração JSON do seu projeto Firebase.
-             </p>
              
-             {showConfig && (
+             {showConfig ? (
                  <div className="space-y-2 animate-slide-down">
+                     <p className="text-xs text-blue-800 mb-2">
+                         Cole aqui o JSON do Firebase Console {'>'} Project Settings {'>'} General {'>'} Your apps.
+                     </p>
                      <textarea
                         rows={6}
                         value={firebaseConfigInput}
@@ -322,6 +348,15 @@ export const AdminPanel: React.FC = () => {
                      />
                      <Button onClick={handleSaveFirebaseConfig} className="bg-blue-600 hover:bg-blue-700 w-full text-xs">
                          Gravar Configuração e Conectar
+                     </Button>
+                 </div>
+             ) : (
+                 <div className="flex items-center gap-3">
+                     <div className="text-xs text-blue-800 flex-1">
+                         Para que outros utilizadores sincronizem, partilhe o "Link Mágico".
+                     </div>
+                     <Button onClick={handleShareConfig} className="bg-green-600 hover:bg-green-700 text-xs shadow-sm">
+                         🔗 Copiar Link de Partilha
                      </Button>
                  </div>
              )}
