@@ -13,7 +13,7 @@ import { ProfileModal } from './components/ProfileModal';
 import { MastersLup } from './components/MastersLup';
 import { NotificationModal } from './components/NotificationModal';
 import { generateTacticalTip } from './services/geminiService';
-import { getAppState, getUnreadCount } from './services/storageService';
+import { getAppState, getUnreadCount, initCloudSync } from './services/storageService';
 
 enum Tab {
   REGISTRATION = 'registrations',
@@ -47,6 +47,9 @@ const App: React.FC = () => {
   const [unreadMessagesCount, setUnreadMessagesCount] = useState(0);
 
   useEffect(() => {
+    // Start Cloud Sync if configured
+    initCloudSync();
+
     // Load AI tip on mount
     generateTacticalTip().then(setTip);
 

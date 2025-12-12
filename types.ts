@@ -2,7 +2,7 @@
 export enum Shift {
   MORNING_1 = "08:00 - 09:30",
   MORNING_2 = "09:30 - 11:00",
-  MORNING_3 = "11:00 - 13:00"
+  MORNING_3 = "11:00 - 12:30"
 }
 
 export enum GameResult {
