@@ -2,6 +2,7 @@
 import { Player, Registration, MatchRecord, AppState, Shift, CourtAllocation, MastersState, PasswordResetRequest, Message } from '../types';
 import { initializeApp, getApps, FirebaseApp } from 'firebase/app';
 import { getFirestore, collection, doc, setDoc, onSnapshot, Firestore } from 'firebase/firestore';
+import { getAnalytics, Analytics } from 'firebase/analytics';
 
 const KEYS = {
   PLAYERS: 'padel_players',
@@ -13,30 +14,26 @@ const KEYS = {
 };
 
 // --- CONFIGURAÇÃO FIREBASE ---
-// SUBSTITUA OS VALORES ABAIXO PELOS DO SEU PROJETO FIREBASE
 const firebaseConfig = {
   apiKey: "AIzaSyBQViWdYpS5ZklwY80kbFQC4EIX50NEe9Q",
   authDomain: "gen-lang-client-0961493660.firebaseapp.com",
+  databaseURL: "https://gen-lang-client-0961493660-default-rtdb.europe-west1.firebasedatabase.app",
   projectId: "gen-lang-client-0961493660",
   storageBucket: "gen-lang-client-0961493660.firebasestorage.app",
   messagingSenderId: "806077355714",
-  appId: "1:806077355714:web:a08852bfc6e4dd81390d5b"
+  appId: "1:806077355714:web:a08852bfc6e4dd81390d5b",
+  measurementId: "G-1CN7M2DH7Q"
 };
 
 // --- FIREBASE SYNC LOGIC ---
 let db: Firestore | null = null;
 let app: FirebaseApp | null = null;
+let analytics: Analytics | null = null;
 let isConnected = false;
 
 export const isFirebaseConnected = () => isConnected;
 
 export const initCloudSync = () => {
-    // Basic check to ensure user has replaced the placeholders
-    if (firebaseConfig.apiKey === "COLE_AQUI_SUA_API_KEY") {
-        console.warn("⚠️ Firebase não configurado. Preencha as chaves em services/storageService.ts");
-        return;
-    }
-
     try {
         if (!getApps().length) {
             app = initializeApp(firebaseConfig);
@@ -44,6 +41,7 @@ export const initCloudSync = () => {
             app = getApps()[0];
         }
         db = getFirestore(app);
+        analytics = getAnalytics(app); // Initialize Analytics
         console.log("🔥 Firebase initialized! Syncing...");
         isConnected = true;
         startListeners();
