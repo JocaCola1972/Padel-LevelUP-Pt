@@ -1,7 +1,7 @@
 
 import React, { useState, useEffect, useCallback } from 'react';
 import { Player, Shift, GameResult, AppState, MatchRecord } from '../types';
-import { addMatch, getAppState, getMatches, generateUUID, getRegistrations, getPlayers } from '../services/storageService';
+import { addMatch, getAppState, getMatches, generateUUID, getRegistrations, getPlayers, subscribeToChanges } from '../services/storageService';
 import { Button } from './Button';
 
 interface MatchTrackerProps {
@@ -77,8 +77,12 @@ export const MatchTracker: React.FC<MatchTrackerProps> = ({ currentUser }) => {
 
   useEffect(() => {
     loadData();
-    const interval = setInterval(loadData, 5000); // Poll for updates
-    return () => clearInterval(interval);
+    const unsubscribe = subscribeToChanges(loadData);
+    const interval = setInterval(loadData, 5000); 
+    return () => {
+        unsubscribe();
+        clearInterval(interval);
+    };
   }, [loadData]); 
 
   // --- LOGIC HELPERS ---

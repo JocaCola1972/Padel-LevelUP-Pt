@@ -1,7 +1,7 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 import { Player, AppState, Message } from '../types';
-import { getPlayers, savePlayer, savePlayersBulk, removePlayer, generateUUID, getAppState, resolvePasswordReset, approvePlayer, saveMessage } from '../services/storageService';
+import { getPlayers, savePlayer, savePlayersBulk, removePlayer, generateUUID, getAppState, resolvePasswordReset, approvePlayer, saveMessage, subscribeToChanges } from '../services/storageService';
 import { Button } from './Button';
 
 // Declaration for SheetJS loaded via CDN
@@ -33,15 +33,21 @@ export const MembersList: React.FC<MembersListProps> = ({ currentUser }) => {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [importStatus, setImportStatus] = useState('');
 
-  useEffect(() => {
-    loadPlayers();
-  }, []);
-
   const loadPlayers = () => {
     const data = getPlayers();
     setPlayers(data.sort((a, b) => (a.participantNumber || 0) - (b.participantNumber || 0)));
     setAppState(getAppState()); // Refresh requests
   };
+
+  useEffect(() => {
+    loadPlayers();
+    const unsubscribe = subscribeToChanges(loadPlayers);
+    const interval = setInterval(loadPlayers, 5000);
+    return () => {
+        unsubscribe();
+        clearInterval(interval);
+    };
+  }, []);
 
   const filteredPlayers = players.filter(p => 
     p.name.toLowerCase().includes(searchTerm.toLowerCase()) || 

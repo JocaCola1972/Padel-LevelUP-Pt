@@ -1,7 +1,7 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 import { AppState, Player, Registration, Shift, MatchRecord, GameResult } from '../types';
-import { getAppState, updateAppState, getRegistrations, getPlayers, removeRegistration, updateRegistration, getMatches } from '../services/storageService';
+import { getAppState, updateAppState, getRegistrations, getPlayers, removeRegistration, updateRegistration, getMatches, subscribeToChanges } from '../services/storageService';
 import { Button } from './Button';
 
 // Declare XLSX for sheetjs
@@ -37,9 +37,14 @@ export const AdminPanel: React.FC = () => {
 
   useEffect(() => {
     loadData();
-    // Auto-refresh data every few seconds to see new registrations coming in
-    const interval = setInterval(loadData, 5000);
-    return () => clearInterval(interval);
+    // Subscribe to realtime changes
+    const unsubscribe = subscribeToChanges(loadData);
+    // Keep polling as backup
+    const interval = setInterval(loadData, 5000); 
+    return () => {
+        unsubscribe();
+        clearInterval(interval);
+    };
   }, []);
 
   const toggleRegistrations = () => {

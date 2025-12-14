@@ -18,6 +18,22 @@ const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZ
 let supabase: SupabaseClient | null = null;
 let isConnected = false;
 
+// --- EVENT BUS FOR REALTIME UPDATES ---
+type DataChangeListener = () => void;
+const listeners: DataChangeListener[] = [];
+
+export const subscribeToChanges = (callback: DataChangeListener) => {
+    listeners.push(callback);
+    return () => {
+        const index = listeners.indexOf(callback);
+        if (index > -1) listeners.splice(index, 1);
+    };
+};
+
+const notifyListeners = () => {
+    listeners.forEach(cb => cb());
+};
+
 export const isFirebaseConnected = () => isConnected; // Mantido nome para compatibilidade
 
 export const initCloudSync = async () => {
@@ -35,6 +51,7 @@ export const initCloudSync = async () => {
         enableRealtimeSubscriptions();
         
         isConnected = true;
+        notifyListeners(); // Notify UI that initial load is done
     } catch (e) {
         console.error("Supabase Init Error:", e);
         isConnected = false;
@@ -97,6 +114,7 @@ const handleRealtimeUpdate = (payload: any) => {
         if (storageKey && newRecord) {
             localStorage.setItem(storageKey, JSON.stringify(newRecord.value));
         }
+        notifyListeners(); // Notify UI
         return;
     }
 
@@ -122,6 +140,7 @@ const handleRealtimeUpdate = (payload: any) => {
     }
 
     localStorage.setItem(storageKey, JSON.stringify(currentData));
+    notifyListeners(); // Notify UI
 };
 
 
@@ -263,6 +282,7 @@ export const savePlayer = async (player: Player): Promise<void> => {
   
   // Optimistic Update
   localStorage.setItem(KEYS.PLAYERS, JSON.stringify(players));
+  notifyListeners();
   
   // Cloud Sync
   if (supabase) {
@@ -276,6 +296,7 @@ export const approvePlayer = async (playerId: string): Promise<void> => {
     if (index >= 0) {
         players[index].isApproved = true;
         localStorage.setItem(KEYS.PLAYERS, JSON.stringify(players));
+        notifyListeners();
         if (supabase) await supabase.from('players').update({ isApproved: true }).eq('id', playerId);
     }
 };
@@ -291,6 +312,8 @@ export const removePlayer = async (playerId: string): Promise<void> => {
     regs = regs.filter(r => r.playerId !== playerId && r.partnerId !== playerId);
     localStorage.setItem(KEYS.REGISTRATIONS, JSON.stringify(regs));
     
+    notifyListeners();
+
     // Cloud Sync
     if (supabase) {
         await supabase.from('players').delete().eq('id', playerId);
@@ -337,6 +360,7 @@ export const savePlayersBulk = (newPlayers: Partial<Player>[]): { added: number,
     });
 
     localStorage.setItem(KEYS.PLAYERS, JSON.stringify(players));
+    notifyListeners();
     
     if (supabase && playersToUpsert.length > 0) {
         supabase.from('players').upsert(playersToUpsert).then(({error}) => {
@@ -364,6 +388,7 @@ export const addRegistration = async (reg: Registration): Promise<void> => {
   if (!regs.find(r => r.playerId === reg.playerId && r.shift === reg.shift && r.date === reg.date)) {
     regs.push(reg);
     localStorage.setItem(KEYS.REGISTRATIONS, JSON.stringify(regs));
+    notifyListeners();
     if (supabase) await supabase.from('registrations').insert(reg);
   }
 };
@@ -374,6 +399,7 @@ export const updateRegistration = async (id: string, updates: Partial<Registrati
     if (index >= 0) {
         regs[index] = { ...regs[index], ...updates };
         localStorage.setItem(KEYS.REGISTRATIONS, JSON.stringify(regs));
+        notifyListeners();
         if (supabase) await supabase.from('registrations').update(updates).eq('id', id);
     }
 };
@@ -382,6 +408,7 @@ export const removeRegistration = async (id: string): Promise<void> => {
   let regs = getRegistrations();
   regs = regs.filter(r => r.id !== id);
   localStorage.setItem(KEYS.REGISTRATIONS, JSON.stringify(regs));
+  notifyListeners();
   if (supabase) await supabase.from('registrations').delete().eq('id', id);
 };
 
@@ -413,6 +440,7 @@ export const addMatch = async (match: MatchRecord, points: number): Promise<void
   });
   
   localStorage.setItem(KEYS.PLAYERS, JSON.stringify(players));
+  notifyListeners();
   
   if (supabase && playersToUpdate.length > 0) {
       await supabase.from('players').upsert(playersToUpdate);
@@ -430,6 +458,7 @@ export const saveMessage = async (msg: Message): Promise<void> => {
     const messages = getMessages();
     messages.push(msg);
     localStorage.setItem(KEYS.MESSAGES, JSON.stringify(messages));
+    notifyListeners();
     if (supabase) await supabase.from('messages').insert(msg);
 };
 
@@ -449,6 +478,7 @@ export const markMessageAsRead = async (messageId: string, userId: string): Prom
         if (msg.receiverId === userId) {
             messages[msgIndex].read = true;
             localStorage.setItem(KEYS.MESSAGES, JSON.stringify(messages));
+            notifyListeners();
             if (supabase) await supabase.from('messages').update({ read: true }).eq('id', messageId);
         } else if (msg.receiverId === 'ALL') {
             const readKey = `padel_read_broadcasts_${userId}`;
@@ -457,6 +487,7 @@ export const markMessageAsRead = async (messageId: string, userId: string): Prom
             if (!readList.includes(messageId)) {
                 readList.push(messageId);
                 localStorage.setItem(readKey, JSON.stringify(readList));
+                notifyListeners();
             }
         }
     }
@@ -511,6 +542,7 @@ export const updateAppState = async (newState: Partial<AppState>): Promise<void>
   const current = getAppState();
   const merged = { ...current, ...newState };
   localStorage.setItem(KEYS.STATE, JSON.stringify(merged));
+  notifyListeners();
   if (supabase) await supabase.from('settings').upsert({ key: 'appState', value: merged });
 };
 
@@ -546,6 +578,7 @@ export const resolvePasswordReset = async (requestId: string, approve: boolean):
         if (pIndex >= 0) {
             players[pIndex].password = undefined; 
             localStorage.setItem(KEYS.PLAYERS, JSON.stringify(players));
+            notifyListeners();
             if (supabase) await supabase.from('players').update({ password: null }).eq('id', players[pIndex].id);
         }
     }
@@ -563,5 +596,6 @@ export const getMastersState = (): MastersState => {
 
 export const saveMastersState = async (state: MastersState): Promise<void> => {
   localStorage.setItem(KEYS.MASTERS, JSON.stringify(state));
+  notifyListeners();
   if (supabase) await supabase.from('settings').upsert({ key: 'masters', value: state });
 };

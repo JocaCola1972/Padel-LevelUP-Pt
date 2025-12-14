@@ -1,7 +1,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { AppState, Player, Registration, Shift } from '../types';
-import { getAppState, addRegistration, getRegistrations, removeRegistration, getPlayers, savePlayer, updateRegistration, generateUUID } from '../services/storageService';
+import { getAppState, addRegistration, getRegistrations, removeRegistration, getPlayers, savePlayer, updateRegistration, generateUUID, subscribeToChanges } from '../services/storageService';
 import { Button } from './Button';
 
 interface RegistrationPanelProps {
@@ -67,8 +67,14 @@ export const RegistrationPanel: React.FC<RegistrationPanelProps> = ({ currentUse
 
   useEffect(() => {
     loadData();
-    const interval = setInterval(loadData, 3000); // Poll for updates
-    return () => clearInterval(interval);
+    // Subscribe to realtime changes
+    const unsubscribe = subscribeToChanges(loadData);
+    // Keep polling as backup
+    const interval = setInterval(loadData, 5000); 
+    return () => {
+        unsubscribe();
+        clearInterval(interval);
+    };
   }, [currentUser.id]);
 
   const handleRegister = (e: React.FormEvent) => {

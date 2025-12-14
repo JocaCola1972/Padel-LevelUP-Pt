@@ -1,17 +1,27 @@
 
 import React, { useEffect, useState } from 'react';
 import { Player, Registration, AppState, Shift } from '../types';
-import { getPlayers, getRegistrations, getAppState } from '../services/storageService';
+import { getPlayers, getRegistrations, getAppState, subscribeToChanges } from '../services/storageService';
 
 export const InscritosList: React.FC = () => {
   const [registrations, setRegistrations] = useState<Registration[]>([]);
   const [players, setPlayers] = useState<Player[]>([]);
   const [appState, setAppState] = useState<AppState>(getAppState());
 
-  useEffect(() => {
+  const loadData = () => {
     setAppState(getAppState());
     setPlayers(getPlayers());
     setRegistrations(getRegistrations());
+  };
+
+  useEffect(() => {
+    loadData();
+    const unsubscribe = subscribeToChanges(loadData);
+    const interval = setInterval(loadData, 5000); 
+    return () => {
+        unsubscribe();
+        clearInterval(interval);
+    };
   }, []);
 
   // Filter registrations for the active date

@@ -1,6 +1,7 @@
+
 import React, { useEffect, useState, useMemo } from 'react';
 import { Player, MatchRecord, Shift, GameResult } from '../types';
-import { getPlayers, getMatches } from '../services/storageService';
+import { getPlayers, getMatches, subscribeToChanges } from '../services/storageService';
 import { generateRankingAnalysis } from '../services/geminiService';
 import { Button } from './Button';
 
@@ -13,9 +14,19 @@ export const RankingTable: React.FC = () => {
   // Filter State: 'ALL' or specific Shift
   const [selectedFilter, setSelectedFilter] = useState<Shift | 'ALL'>('ALL');
 
-  useEffect(() => {
+  const loadData = () => {
     setPlayers(getPlayers());
     setMatches(getMatches());
+  };
+
+  useEffect(() => {
+    loadData();
+    const unsubscribe = subscribeToChanges(loadData);
+    const interval = setInterval(loadData, 5000); 
+    return () => {
+        unsubscribe();
+        clearInterval(interval);
+    };
   }, []);
 
   // Helper to get points from result
