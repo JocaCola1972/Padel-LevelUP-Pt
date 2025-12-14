@@ -13,7 +13,7 @@ import { ProfileModal } from './components/ProfileModal';
 import { MastersLup } from './components/MastersLup';
 import { NotificationModal } from './components/NotificationModal';
 import { generateTacticalTip } from './services/geminiService';
-import { getAppState, getUnreadCount, initCloudSync, saveFirebaseConfig, isFirebaseConnected } from './services/storageService';
+import { getAppState, getUnreadCount, initCloudSync, isFirebaseConnected } from './services/storageService';
 
 enum Tab {
   REGISTRATION = 'registrations',
@@ -50,35 +50,14 @@ const App: React.FC = () => {
   const [isSyncing, setIsSyncing] = useState(false);
 
   useEffect(() => {
-    // 1. Check for Config Link in URL (?cfg=...)
-    const params = new URLSearchParams(window.location.search);
-    const configParam = params.get('cfg');
-    
-    if (configParam) {
-        try {
-            const configStr = atob(configParam);
-            // Validate JSON
-            JSON.parse(configStr);
-            saveFirebaseConfig(configStr);
-            alert("✅ App Conectada à Cloud com sucesso! A reiniciar...");
-            // Clean URL
-            window.history.replaceState({}, document.title, "/");
-            window.location.reload();
-            return;
-        } catch (e) {
-            console.error("Invalid config param", e);
-            alert("Link de configuração inválido.");
-        }
-    }
-
-    // 2. Start Cloud Sync
+    // 1. Start Cloud Sync (using hardcoded config in storageService)
     initCloudSync();
     setIsSyncing(isFirebaseConnected());
 
-    // 3. Load AI tip
+    // 2. Load AI tip
     generateTacticalTip().then(setTip);
 
-    // 4. Check for notifications periodically
+    // 3. Check for notifications periodically
     const checkNotifications = () => {
         const state = getAppState();
         setPendingRequestsCount(state.passwordResetRequests?.length || 0);

@@ -9,8 +9,18 @@ const KEYS = {
   MATCHES: 'padel_matches',
   STATE: 'padel_state',
   MASTERS: 'padel_masters',
-  MESSAGES: 'padel_messages',
-  FIREBASE_CONFIG: 'padel_firebase_config'
+  MESSAGES: 'padel_messages'
+};
+
+// --- CONFIGURAÇÃO FIREBASE ---
+// SUBSTITUA OS VALORES ABAIXO PELOS DO SEU PROJETO FIREBASE
+const firebaseConfig = {
+  apiKey: "AIzaSyBQViWdYpS5ZklwY80kbFQC4EIX50NEe9Q",
+  authDomain: "gen-lang-client-0961493660.firebaseapp.com",
+  projectId: "gen-lang-client-0961493660",
+  storageBucket: "gen-lang-client-0961493660.firebasestorage.app",
+  messagingSenderId: "806077355714",
+  appId: "1:806077355714:web:a08852bfc6e4dd81390d5b"
 };
 
 // --- FIREBASE SYNC LOGIC ---
@@ -21,11 +31,13 @@ let isConnected = false;
 export const isFirebaseConnected = () => isConnected;
 
 export const initCloudSync = () => {
-    const configStr = localStorage.getItem(KEYS.FIREBASE_CONFIG);
-    if (!configStr) return; // No config, stay local
+    // Basic check to ensure user has replaced the placeholders
+    if (firebaseConfig.apiKey === "COLE_AQUI_SUA_API_KEY") {
+        console.warn("⚠️ Firebase não configurado. Preencha as chaves em services/storageService.ts");
+        return;
+    }
 
     try {
-        const firebaseConfig = JSON.parse(configStr);
         if (!getApps().length) {
             app = initializeApp(firebaseConfig);
         } else {
@@ -112,13 +124,6 @@ const syncSingletonToCloud = (docName: string, data: any) => {
         console.error(`Error syncing ${docName}:`, e);
     }
 };
-
-export const saveFirebaseConfig = (config: string) => {
-    localStorage.setItem(KEYS.FIREBASE_CONFIG, config);
-    initCloudSync();
-};
-
-export const getFirebaseConfig = () => localStorage.getItem(KEYS.FIREBASE_CONFIG);
 
 // Utility for ID generation (Compatible with all browsers)
 export const generateUUID = () => {

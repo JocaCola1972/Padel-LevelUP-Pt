@@ -1,7 +1,7 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 import { AppState, Player, Registration, Shift, MatchRecord, GameResult } from '../types';
-import { getAppState, updateAppState, getRegistrations, getPlayers, removeRegistration, updateRegistration, getMatches, saveFirebaseConfig, getFirebaseConfig } from '../services/storageService';
+import { getAppState, updateAppState, getRegistrations, getPlayers, removeRegistration, updateRegistration, getMatches } from '../services/storageService';
 import { Button } from './Button';
 
 // Declare XLSX for sheetjs
@@ -25,10 +25,6 @@ export const AdminPanel: React.FC = () => {
   // End Tournament Modal State
   const [showEndTournament, setShowEndTournament] = useState(false);
 
-  // Firebase Config State
-  const [firebaseConfigInput, setFirebaseConfigInput] = useState('');
-  const [showConfig, setShowConfig] = useState(false);
-
   // Logo Upload
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -43,8 +39,6 @@ export const AdminPanel: React.FC = () => {
     loadData();
     // Auto-refresh data every few seconds to see new registrations coming in
     const interval = setInterval(loadData, 5000);
-    const existingConfig = getFirebaseConfig();
-    if(existingConfig) setFirebaseConfigInput(existingConfig);
     return () => clearInterval(interval);
   }, []);
 
@@ -116,45 +110,6 @@ export const AdminPanel: React.FC = () => {
       setState(newState);
       showMessageTemporarily();
       if (fileInputRef.current) fileInputRef.current.value = '';
-  };
-
-  const handleSaveFirebaseConfig = () => {
-      if(!firebaseConfigInput.trim()) return;
-      try {
-          // Validate JSON
-          JSON.parse(firebaseConfigInput);
-          saveFirebaseConfig(firebaseConfigInput);
-          alert("Configuração Cloud gravada! A app tentará sincronizar.");
-          window.location.reload(); // Reload to start sync cleanly
-      } catch (e) {
-          alert("JSON Inválido. Verifique o formato.");
-      }
-  };
-
-  const handleShareConfig = () => {
-      const config = getFirebaseConfig();
-      if (!config) {
-          alert("Configure o Firebase primeiro.");
-          return;
-      }
-      try {
-          // Create Base64 Encoded Config URL
-          const encoded = btoa(config);
-          const url = `${window.location.origin}${window.location.pathname}?cfg=${encoded}`;
-          
-          if (navigator.share) {
-              navigator.share({
-                  title: 'Configuração Padel LevelUp',
-                  text: 'Abre este link para ligar a app ao servidor:',
-                  url: url
-              });
-          } else {
-              navigator.clipboard.writeText(url);
-              alert("Link copiado para a área de transferência! Envia aos outros utilizadores.");
-          }
-      } catch (e) {
-          alert("Erro ao gerar link.");
-      }
   };
 
   // Trigger Delete Modal
@@ -323,45 +278,6 @@ export const AdminPanel: React.FC = () => {
 
         <div className="space-y-6">
           
-          {/* Cloud Sync Config */}
-          <div className="p-4 bg-blue-50 border border-blue-200 rounded-lg">
-             <div className="flex justify-between items-center mb-2">
-                 <h3 className="font-bold text-blue-900 flex items-center gap-2">
-                    ☁️ Sincronização Cloud (Multidispositivo)
-                 </h3>
-                 <button onClick={() => setShowConfig(!showConfig)} className="text-xs text-blue-600 underline">
-                     {showConfig ? 'Ocultar' : 'Configurar'}
-                 </button>
-             </div>
-             
-             {showConfig ? (
-                 <div className="space-y-2 animate-slide-down">
-                     <p className="text-xs text-blue-800 mb-2">
-                         Cole aqui o JSON do Firebase Console {'>'} Project Settings {'>'} General {'>'} Your apps.
-                     </p>
-                     <textarea
-                        rows={6}
-                        value={firebaseConfigInput}
-                        onChange={(e) => setFirebaseConfigInput(e.target.value)}
-                        placeholder='{"apiKey": "...", "authDomain": "...", "projectId": "..."}'
-                        className="w-full p-2 text-xs font-mono border rounded bg-white"
-                     />
-                     <Button onClick={handleSaveFirebaseConfig} className="bg-blue-600 hover:bg-blue-700 w-full text-xs">
-                         Gravar Configuração e Conectar
-                     </Button>
-                 </div>
-             ) : (
-                 <div className="flex items-center gap-3">
-                     <div className="text-xs text-blue-800 flex-1">
-                         Para que outros utilizadores sincronizem, partilhe o "Link Mágico".
-                     </div>
-                     <Button onClick={handleShareConfig} className="bg-green-600 hover:bg-green-700 text-xs shadow-sm">
-                         🔗 Copiar Link de Partilha
-                     </Button>
-                 </div>
-             )}
-          </div>
-
           {/* Registration Status */}
           <div className="flex items-center justify-between p-4 bg-gray-50 rounded-lg">
             <div>
