@@ -323,7 +323,7 @@ export const AdminPanel: React.FC = () => {
 
           {/* Visual Configuration (Logo) */}
           <div className="p-4 bg-gray-50 rounded-lg">
-              <h3 className="font-bold text-gray-700 mb-4">Configuração Visual (Logótipo)</h3>
+              <h3 className="font-bold text-gray-700 mb-4">Configuração Visual (Logótipo e Ícone)</h3>
               <div className="flex items-center gap-6">
                   <div className="w-24 h-24 rounded-full border-4 border-padel overflow-hidden bg-white flex-shrink-0 relative">
                       <img 
@@ -333,7 +333,10 @@ export const AdminPanel: React.FC = () => {
                       />
                   </div>
                   <div className="flex-1 space-y-2">
-                      <p className="text-xs text-gray-500">Carrega uma imagem para substituir o logótipo no ecrã inicial.</p>
+                      <p className="text-xs text-gray-500">
+                          Carrega uma imagem para substituir o logótipo no ecrã inicial. 
+                          <span className="block mt-1 font-bold text-padel-dark">Nota: Esta imagem será também usada como o ícone da aplicação (favicon).</span>
+                      </p>
                       <input 
                           type="file" 
                           accept="image/*"

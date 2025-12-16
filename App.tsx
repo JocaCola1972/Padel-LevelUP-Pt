@@ -13,7 +13,7 @@ import { ProfileModal } from './components/ProfileModal';
 import { MastersLup } from './components/MastersLup';
 import { NotificationModal } from './components/NotificationModal';
 import { generateTacticalTip } from './services/geminiService';
-import { getAppState, getUnreadCount, initCloudSync, isFirebaseConnected } from './services/storageService';
+import { getAppState, getUnreadCount, initCloudSync, isFirebaseConnected, subscribeToChanges } from './services/storageService';
 
 enum Tab {
   REGISTRATION = 'registrations',
@@ -71,7 +71,29 @@ const App: React.FC = () => {
     
     checkNotifications();
     const interval = setInterval(checkNotifications, 5000);
-    return () => clearInterval(interval);
+
+    // 4. Dynamic Favicon Updater
+    const updateFavicon = () => {
+        const state = getAppState();
+        if (state.customLogo) {
+            let link = document.querySelector("link[rel~='icon']") as HTMLLinkElement;
+            if (!link) {
+                link = document.createElement('link');
+                link.rel = 'icon';
+                document.getElementsByTagName('head')[0].appendChild(link);
+            }
+            link.href = state.customLogo;
+        }
+    };
+
+    // Run once and subscribe
+    updateFavicon();
+    const unsubscribeFavicon = subscribeToChanges(updateFavicon);
+
+    return () => {
+        clearInterval(interval);
+        unsubscribeFavicon();
+    };
 
   }, [currentUser]);
 
