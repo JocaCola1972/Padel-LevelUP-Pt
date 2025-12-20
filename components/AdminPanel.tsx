@@ -1,7 +1,7 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 import { AppState, Player, Registration, Shift, MatchRecord, GameResult } from '../types';
-import { getAppState, updateAppState, getRegistrations, getPlayers, removeRegistration, updateRegistration, getMatches, subscribeToChanges, deleteMatchesByDate } from '../services/storageService';
+import { getAppState, updateAppState, getRegistrations, getPlayers, removeRegistration, updateRegistration, getMatches, subscribeToChanges, deleteMatchesByDate, deleteRegistrationsByDate } from '../services/storageService';
 import { Button } from './Button';
 
 // Declare XLSX for sheetjs
@@ -18,6 +18,9 @@ export const AdminPanel: React.FC = () => {
 
   // Filter state for the report section
   const [reportFilterDate, setReportFilterDate] = useState<string>(getAppState().nextSundayDate);
+  
+  // Filter state for the registrations section
+  const [regFilterDate, setRegFilterDate] = useState<string>(getAppState().nextSundayDate);
 
   // Edit Registration (Add Partner) State
   const [editRegId, setEditRegId] = useState<string | null>(null);
@@ -29,6 +32,9 @@ export const AdminPanel: React.FC = () => {
 
   // Reset Results Confirmation State
   const [showResetConfirm, setShowResetConfirm] = useState(false);
+  
+  // Reset Registrations Confirmation State
+  const [showRegResetConfirm, setShowRegResetConfirm] = useState(false);
 
   // End Tournament Modal State
   const [showEndTournament, setShowEndTournament] = useState(false);
@@ -55,6 +61,9 @@ export const AdminPanel: React.FC = () => {
     
     if (!reportFilterDate) {
         setReportFilterDate(appState.nextSundayDate);
+    }
+    if (!regFilterDate) {
+        setRegFilterDate(appState.nextSundayDate);
     }
   };
 
@@ -110,6 +119,7 @@ export const AdminPanel: React.FC = () => {
     updateAppState(newState);
     setState(newState);
     setReportFilterDate(dateStr);
+    setRegFilterDate(dateStr);
     showMessageTemporarily();
     setTimeout(loadData, 100); 
   };
@@ -182,6 +192,14 @@ export const AdminPanel: React.FC = () => {
       loadData();
       alert("Resultados eliminados e pontos revertidos com sucesso.");
   };
+  
+  const handleExecuteResetRegistrations = async () => {
+      if (!regFilterDate) return;
+      await deleteRegistrationsByDate(regFilterDate);
+      setShowRegResetConfirm(false);
+      loadData();
+      alert("Inscrições eliminadas com sucesso.");
+  };
 
   const showMessageTemporarily = () => {
     setShowMessage(true);
@@ -193,7 +211,8 @@ export const AdminPanel: React.FC = () => {
     return p;
   };
 
-  const activeRegistrations = registrations.filter(r => r.date === state.nextSundayDate);
+  // List filtered by the UI filter date (independent from global Sunday date)
+  const filteredRegistrations = registrations.filter(r => r.date === regFilterDate);
 
   const openPartnerModal = (regId: string) => {
       setEditRegId(regId);
@@ -592,19 +611,42 @@ export const AdminPanel: React.FC = () => {
           case 'registrations':
               return (
                 <div key="registrations" className="bg-white p-6 rounded-xl shadow-lg border-t-4 border-red-500 animate-fade-in">
-                    <div className="flex justify-between items-start mb-6">
+                    <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-6">
                         <div className="flex items-center gap-1">
                             <h2 className="text-2xl font-bold text-gray-800 flex items-center gap-2">
                                 🗑️ Gestão de Inscrições
                             </h2>
                             {controls}
                         </div>
+                        <div className="flex gap-2 w-full md:w-auto">
+                            <Button 
+                                onClick={() => setShowRegResetConfirm(true)} 
+                                disabled={filteredRegistrations.length === 0} 
+                                className="bg-red-500 hover:bg-red-600 text-white px-3 text-xs"
+                                title="Limpar todas as inscrições desta data"
+                            >
+                                🗑️ Limpar Inscrições
+                            </Button>
+                        </div>
                     </div>
+                    
+                    <div className="flex flex-col sm:flex-row gap-4 items-end sm:items-center mb-6 bg-gray-50 p-4 rounded-lg">
+                        <div className="flex-1 w-full">
+                            <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Filtrar por Data:</label>
+                            <input 
+                                type="date" 
+                                value={regFilterDate}
+                                onChange={(e) => setRegFilterDate(e.target.value)}
+                                className="w-full p-2 border border-gray-200 rounded outline-none focus:ring-2 focus:ring-padel-blue"
+                            />
+                        </div>
+                    </div>
+
                     <p className="text-sm text-gray-500 mb-4">
-                        Lista de inscritos para <span className="font-bold">{state.nextSundayDate}</span>.
+                        Inscritos para <span className="font-bold">{regFilterDate}</span>:
                     </p>
                     {Object.values(Shift).map(shift => {
-                        const shiftRegs = activeRegistrations.filter(r => r.shift === shift);
+                        const shiftRegs = filteredRegistrations.filter(r => r.shift === shift);
                         if (shiftRegs.length === 0) return null;
                         return (
                             <div key={shift} className="mb-6 last:mb-0">
@@ -664,9 +706,9 @@ export const AdminPanel: React.FC = () => {
                             </div>
                         );
                     })}
-                    {activeRegistrations.length === 0 && (
+                    {filteredRegistrations.length === 0 && (
                         <div className="text-center py-8 text-gray-400 italic">
-                            Nenhuma inscrição encontrada para esta data.
+                            Nenhuma inscrição encontrada para esta data ({regFilterDate}).
                         </div>
                     )}
                 </div>
@@ -797,6 +839,46 @@ export const AdminPanel: React.FC = () => {
                       </Button>
                       <Button 
                         onClick={handleExecuteResetResults} 
+                        className="flex-1 py-3 bg-red-600 hover:bg-red-700 font-black text-white"
+                      >
+                          Sim, Limpar
+                      </Button>
+                  </div>
+              </div>
+          </div>
+      )}
+      
+      {/* RESET REGISTRATIONS CONFIRMATION MODAL: Mensagem do LevelUP */}
+      {showRegResetConfirm && (
+          <div className="fixed inset-0 bg-black/70 z-[100] flex items-center justify-center p-4 backdrop-blur-sm animate-fade-in">
+              <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm overflow-hidden border-t-8 border-red-600">
+                  <div className="p-6 text-center">
+                      <div className="w-16 h-16 bg-red-100 text-red-600 rounded-full flex items-center justify-center mx-auto mb-4 text-3xl">
+                          ⚠️
+                      </div>
+                      <h3 className="text-xl font-black text-red-600 mb-2 tracking-tight">Mensagem do LevelUP</h3>
+                      <div className="space-y-4">
+                        <p className="text-gray-800 font-bold leading-tight">
+                            Tens a certeza que desejas apagar todas as INSCRIÇÕES do dia {regFilterDate}?
+                        </p>
+                        <div className="text-xs text-gray-500 leading-relaxed space-y-2 p-3 bg-gray-50 rounded-lg text-left italic">
+                            <p>• Esta ação irá apagar todos os registos de inscrição desta data.</p>
+                            <p>• Os turnos desta data ficarão totalmente vazios.</p>
+                            <p>• Esta ação NÃO afeta os resultados já registados, apenas as inscrições.</p>
+                        </div>
+                        <p className="text-xs font-black text-red-500 uppercase">Atenção: Esta ação é irreversível!</p>
+                      </div>
+                  </div>
+                  <div className="p-4 bg-gray-50 flex gap-3">
+                      <Button 
+                        variant="secondary"
+                        onClick={() => setShowRegResetConfirm(false)} 
+                        className="flex-1 py-3 font-bold"
+                      >
+                          Não, Cancelar
+                      </Button>
+                      <Button 
+                        onClick={handleExecuteResetRegistrations} 
                         className="flex-1 py-3 bg-red-600 hover:bg-red-700 font-black text-white"
                       >
                           Sim, Limpar

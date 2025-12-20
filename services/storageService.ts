@@ -413,6 +413,16 @@ export const removeRegistration = async (id: string): Promise<void> => {
   if (supabase) await supabase.from('registrations').delete().eq('id', id);
 };
 
+export const deleteRegistrationsByDate = async (date: string): Promise<void> => {
+    let regs = getRegistrations();
+    const updatedRegs = regs.filter(r => r.date !== date);
+    localStorage.setItem(KEYS.REGISTRATIONS, JSON.stringify(updatedRegs));
+    notifyListeners();
+    if (supabase) {
+        await supabase.from('registrations').delete().eq('date', date);
+    }
+};
+
 // --- Matches & Points ---
 
 export const getMatches = (): MatchRecord[] => {
