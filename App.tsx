@@ -13,7 +13,7 @@ import { ProfileModal } from './components/ProfileModal';
 import { MastersLup } from './components/MastersLup';
 import { NotificationModal } from './components/NotificationModal';
 import { generateTacticalTip } from './services/geminiService';
-import { getAppState, getUnreadCount, initCloudSync, isFirebaseConnected, subscribeToChanges } from './services/storageService';
+import { getAppState, getUnreadCount, initCloudSync, isFirebaseConnected, subscribeToChanges, getPlayers } from './services/storageService';
 
 enum Tab {
   REGISTRATION = 'registrations',
@@ -30,6 +30,8 @@ enum ViewState {
   AUTH = 'auth',
   APP = 'app'
 }
+
+const SESSION_KEY = 'padel_levelup_session_user_id';
 
 const App: React.FC = () => {
   const [currentUser, setCurrentUser] = useState<Player | null>(null);
@@ -49,11 +51,34 @@ const App: React.FC = () => {
   // Sync State
   const [isSyncing, setIsSyncing] = useState(false);
 
+  // 1. Initial Session Check & Data Load
   useEffect(() => {
-    // 1. Start Cloud Sync (using hardcoded config in storageService)
-    initCloudSync();
-    setIsSyncing(isFirebaseConnected());
+    const initApp = async () => {
+        // Initialize Sync
+        await initCloudSync();
+        setIsSyncing(isFirebaseConnected());
 
+        // Check for persistent session
+        const savedUserId = localStorage.getItem(SESSION_KEY);
+        if (savedUserId) {
+            const players = getPlayers();
+            const foundUser = players.find(p => p.id === savedUserId);
+            
+            // Only auto-login if user exists and is approved
+            if (foundUser && foundUser.isApproved !== false) {
+                setCurrentUser(foundUser);
+                setViewState(ViewState.APP);
+            } else if (foundUser && foundUser.isApproved === false) {
+                // If user was saved but now is pending approval, clear session
+                localStorage.removeItem(SESSION_KEY);
+            }
+        }
+    };
+
+    initApp();
+  }, []);
+
+  useEffect(() => {
     // 2. Load AI tip
     generateTacticalTip().then(setTip);
 
@@ -66,6 +91,13 @@ const App: React.FC = () => {
         if (currentUser) {
             const unread = getUnreadCount(currentUser.id);
             setUnreadMessagesCount(unread);
+
+            // Keep currentUser data in sync if it changes in another tab/device
+            const players = getPlayers();
+            const freshUserData = players.find(p => p.id === currentUser.id);
+            if (freshUserData && JSON.stringify(freshUserData) !== JSON.stringify(currentUser)) {
+                setCurrentUser(freshUserData);
+            }
         }
     };
     
@@ -103,12 +135,14 @@ const App: React.FC = () => {
   };
 
   const handleLoginSuccess = (player: Player) => {
+    localStorage.setItem(SESSION_KEY, player.id);
     setCurrentUser(player);
     setViewState(ViewState.APP);
     setActiveTab(Tab.REGISTRATION);
   };
 
   const handleLogout = () => {
+    localStorage.removeItem(SESSION_KEY);
     setCurrentUser(null);
     setViewState(ViewState.LANDING);
     setActiveTab(Tab.REGISTRATION);
