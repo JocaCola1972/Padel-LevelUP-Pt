@@ -302,6 +302,27 @@ export const approvePlayer = async (playerId: string): Promise<void> => {
     }
 };
 
+export const approveAllPendingPlayers = async (): Promise<void> => {
+    const players = getPlayers();
+    const pendingIds: string[] = [];
+    
+    players.forEach(p => {
+        if (p.isApproved === false) {
+            p.isApproved = true;
+            pendingIds.push(p.id);
+        }
+    });
+    
+    if (pendingIds.length === 0) return;
+
+    localStorage.setItem(KEYS.PLAYERS, JSON.stringify(players));
+    notifyListeners();
+    
+    if (supabase) {
+        await supabase.from('players').update({ isApproved: true }).in('id', pendingIds);
+    }
+};
+
 export const removePlayer = async (playerId: string): Promise<void> => {
     // Optimistic Delete
     let players = getPlayers();

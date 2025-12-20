@@ -1,7 +1,7 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 import { Player, AppState, Message } from '../types';
-import { getPlayers, savePlayer, savePlayersBulk, removePlayer, generateUUID, getAppState, resolvePasswordReset, approvePlayer, saveMessage, subscribeToChanges } from '../services/storageService';
+import { getPlayers, savePlayer, savePlayersBulk, removePlayer, generateUUID, getAppState, resolvePasswordReset, approvePlayer, approveAllPendingPlayers, saveMessage, subscribeToChanges } from '../services/storageService';
 import { Button } from './Button';
 
 // Declaration for SheetJS loaded via CDN
@@ -120,6 +120,20 @@ export const MembersList: React.FC<MembersListProps> = ({ currentUser }) => {
   const handleApprove = (player: Player) => {
       approvePlayer(player.id);
       loadPlayers();
+  };
+
+  const handleApproveAll = async () => {
+      if (window.confirm(`Tens a certeza que desejas aprovar todas as ${pendingApprovalPlayers.length} inscrições pendentes?`)) {
+          await approveAllPendingPlayers();
+          loadPlayers();
+      }
+  };
+
+  const handleReject = (player: Player) => {
+      if (window.confirm(`Tens a certeza que desejas REPROVAR a inscrição de ${player.name}? O registo será apagado.`)) {
+          removePlayer(player.id);
+          loadPlayers();
+      }
   };
 
   // Message Logic
@@ -476,19 +490,36 @@ export const MembersList: React.FC<MembersListProps> = ({ currentUser }) => {
       {/* Pending Approvals Section */}
       {isAnyAdmin && pendingApprovalPlayers.length > 0 && (
           <div className="bg-orange-50 rounded-xl shadow overflow-hidden border border-orange-200 mb-6">
-              <div className="bg-orange-100 px-4 py-2 border-b border-orange-200 text-xs font-bold text-orange-800 uppercase flex justify-between">
-                  <span>⏳ Pendentes de Aprovação ({pendingApprovalPlayers.length})</span>
+              <div className="bg-orange-100 px-4 py-3 border-b border-orange-200 flex justify-between items-center">
+                  <span className="text-xs font-bold text-orange-800 uppercase tracking-wider">⏳ Pendentes de Aprovação ({pendingApprovalPlayers.length})</span>
+                  <button 
+                    onClick={handleApproveAll}
+                    className="bg-green-600 text-white text-[10px] font-bold px-3 py-1 rounded-full hover:bg-green-700 shadow-sm transition-all uppercase"
+                  >
+                      Aprovar Todos
+                  </button>
               </div>
               <div className="divide-y divide-orange-100">
                   {pendingApprovalPlayers.map(player => (
-                      <div key={player.id} className="p-4 flex items-center justify-between">
+                      <div key={player.id} className="p-4 flex items-center justify-between hover:bg-orange-100/50 transition-colors">
                           <div>
                               <h4 className="font-bold text-gray-900">{player.name}</h4>
                               <p className="text-xs text-gray-500 font-mono">#{player.participantNumber} • {player.phone}</p>
                           </div>
-                          <Button onClick={() => handleApprove(player)} className="bg-green-600 hover:bg-green-700 text-xs">
-                              ✅ Aprovar
-                          </Button>
+                          <div className="flex gap-2">
+                              <Button 
+                                onClick={() => handleApprove(player)} 
+                                className="bg-green-600 hover:bg-green-700 text-xs py-1.5 px-3 h-8 rounded-lg"
+                              >
+                                  ✅ Aprovar
+                              </Button>
+                              <Button 
+                                onClick={() => handleReject(player)} 
+                                className="bg-red-100 text-red-600 hover:bg-red-200 text-xs py-1.5 px-3 h-8 rounded-lg border-none shadow-none"
+                              >
+                                  ❌ Reprovar
+                              </Button>
+                          </div>
                       </div>
                   ))}
               </div>
