@@ -34,10 +34,30 @@ enum ViewState {
 const SESSION_KEY = 'padel_levelup_session_user_id';
 
 const App: React.FC = () => {
-  const [currentUser, setCurrentUser] = useState<Player | null>(null);
-  const [viewState, setViewState] = useState<ViewState>(ViewState.LANDING);
-  const [authMode, setAuthMode] = useState<'login' | 'register'>('login');
+  // Lógica de recuperação de sessão síncrona para evitar "flicker" no refresh
+  const getInitialUser = (): Player | null => {
+    const savedUserId = localStorage.getItem(SESSION_KEY);
+    if (!savedUserId) return null;
+    
+    // Tentamos obter os jogadores do localStorage imediatamente
+    const playersData = localStorage.getItem('padel_players');
+    if (!playersData) return null;
+    
+    try {
+        const players: Player[] = JSON.parse(playersData);
+        const found = players.find(p => p.id === savedUserId);
+        // Só mantemos a sessão se o utilizador existir e não estiver pendente de aprovação
+        return (found && found.isApproved !== false) ? found : null;
+    } catch (e) {
+        return null;
+    }
+  };
+
+  const initialUser = getInitialUser();
+  const [currentUser, setCurrentUser] = useState<Player | null>(initialUser);
+  const [viewState, setViewState] = useState<ViewState>(initialUser ? ViewState.APP : ViewState.LANDING);
   
+  const [authMode, setAuthMode] = useState<'login' | 'register'>('login');
   const [activeTab, setActiveTab] = useState<Tab>(Tab.REGISTRATION);
   const [tip, setTip] = useState<string>('');
   
@@ -51,31 +71,25 @@ const App: React.FC = () => {
   // Sync State
   const [isSyncing, setIsSyncing] = useState(false);
 
-  // 1. Initial Session Check & Data Load
+  // 1. Initial Data Sync & Session Validation
   useEffect(() => {
-    const initApp = async () => {
-        // Initialize Sync
+    const startSync = async () => {
         await initCloudSync();
         setIsSyncing(isFirebaseConnected());
-
-        // Check for persistent session
+        
+        // Após o sync com a nuvem, validamos se o utilizador da sessão ainda é válido/aprovado
+        const players = getPlayers();
         const savedUserId = localStorage.getItem(SESSION_KEY);
         if (savedUserId) {
-            const players = getPlayers();
-            const foundUser = players.find(p => p.id === savedUserId);
-            
-            // Only auto-login if user exists and is approved
-            if (foundUser && foundUser.isApproved !== false) {
-                setCurrentUser(foundUser);
-                setViewState(ViewState.APP);
-            } else if (foundUser && foundUser.isApproved === false) {
-                // If user was saved but now is pending approval, clear session
-                localStorage.removeItem(SESSION_KEY);
+            const freshUser = players.find(p => p.id === savedUserId);
+            if (!freshUser || freshUser.isApproved === false) {
+                handleLogout();
+            } else if (JSON.stringify(freshUser) !== JSON.stringify(currentUser)) {
+                setCurrentUser(freshUser);
             }
         }
     };
-
-    initApp();
+    startSync();
   }, []);
 
   useEffect(() => {
@@ -86,13 +100,13 @@ const App: React.FC = () => {
     const checkNotifications = () => {
         const state = getAppState();
         setPendingRequestsCount(state.passwordResetRequests?.length || 0);
-        setIsSyncing(isFirebaseConnected()); // Refresh sync status display
+        setIsSyncing(isFirebaseConnected());
         
         if (currentUser) {
             const unread = getUnreadCount(currentUser.id);
             setUnreadMessagesCount(unread);
-
-            // Keep currentUser data in sync if it changes in another tab/device
+            
+            // Mantém os dados do utilizador atualizados se mudarem noutro dispositivo
             const players = getPlayers();
             const freshUserData = players.find(p => p.id === currentUser.id);
             if (freshUserData && JSON.stringify(freshUserData) !== JSON.stringify(currentUser)) {
@@ -118,7 +132,6 @@ const App: React.FC = () => {
         }
     };
 
-    // Run once and subscribe
     updateFavicon();
     const unsubscribeFavicon = subscribeToChanges(updateFavicon);
 
