@@ -31,13 +31,15 @@ export const MatchTracker: React.FC<MatchTrackerProps> = ({ currentUser }) => {
   const [matches, setMatches] = useState<MatchRecord[]>([]);
   const [allPlayers, setAllPlayers] = useState<Player[]>([]);
 
+  // Custom Alert State
+  const [alertConfig, setAlertConfig] = useState<{ message: string; subMessage?: string } | null>(null);
+
   // History Filters
   const [historyDate, setHistoryDate] = useState<string>('');
   const [historyShift, setHistoryShift] = useState<Shift | 'ALL'>('ALL');
 
   // Self Mode State
   const [selfResult, setSelfResult] = useState<GameResult | null>(null);
-  // Golden Point State: null = not decided, true = we won, false = we lost
   const [goldenPointWon, setGoldenPointWon] = useState<boolean | null>(null);
 
   const loadData = useCallback(() => {
@@ -50,16 +52,13 @@ export const MatchTracker: React.FC<MatchTrackerProps> = ({ currentUser }) => {
     setAppState(currentState);
     setAllPlayers(players);
 
-    // Filter shifts where the user is registered for the ACTIVE TOURNAMENT DATE AND IS A GAME TYPE
     const myShifts = registrations
         .filter(r => r.playerId === currentUser.id && r.date === currentState.nextSundayDate && r.type === 'game')
         .map(r => r.shift);
     
-    // Remove duplicates just in case
     const uniqueShifts = Array.from(new Set(myShifts));
     setAvailableShifts(uniqueShifts);
 
-    // If selected shift is no longer valid (or null), set to first available
     if (uniqueShifts.length > 0) {
         if (!selectedShift || !uniqueShifts.includes(selectedShift)) {
             setSelectedShift(uniqueShifts[0]);
@@ -68,7 +67,6 @@ export const MatchTracker: React.FC<MatchTrackerProps> = ({ currentUser }) => {
         setSelectedShift(null);
     }
     
-    // Set default history date to current tournament date if not set
     if (!historyDate) {
         setHistoryDate(currentState.nextSundayDate);
     }
@@ -85,21 +83,18 @@ export const MatchTracker: React.FC<MatchTrackerProps> = ({ currentUser }) => {
     };
   }, [loadData]); 
 
-  // --- LOGIC HELPERS ---
+  const getPlayerName = (id: string) => allPlayers.find(p => p.id === id)?.name || 'Jogador Desconhecido';
 
-  // Get Limit for currently selected Shift
   const getLimitForShift = (shift: Shift) => {
       if (typeof appState.gamesPerShift === 'number') return appState.gamesPerShift;
       return appState.gamesPerShift[shift] || 5;
   };
 
-  // Get Number of Courts for currently selected Shift
   const getCourtsForShift = (shift: Shift) => {
       const config = appState.courtConfig[shift];
       return config ? config.game : 4;
   };
 
-  // Find the next logical game number based on history
   const getNextLogicalGame = (shift: Shift) => {
       const tournamentDate = appState.nextSundayDate;
       const myMatches = matches.filter(m => 
@@ -111,9 +106,8 @@ export const MatchTracker: React.FC<MatchTrackerProps> = ({ currentUser }) => {
       return maxGame + 1;
   };
 
-  // Calculate the expected court based on previous game result (Sobe e Desce Logic)
   const calculateNextCourt = (shift: Shift, targetGame: number) => {
-      if (targetGame <= 1) return 1; // Default to 1 for first game logic (though user selects)
+      if (targetGame <= 1) return 1;
 
       const tournamentDate = appState.nextSundayDate;
       const prevGameNum = targetGame - 1;
@@ -125,64 +119,48 @@ export const MatchTracker: React.FC<MatchTrackerProps> = ({ currentUser }) => {
           m.gameNumber === prevGameNum
       );
 
-      if (!prevMatch) return 1; // Should not happen if sequence is enforced
+      if (!prevMatch) return 1;
 
       const currentCourt = prevMatch.courtNumber;
       const maxCourts = getCourtsForShift(shift);
-
-      let nextCourt = currentCourt;
-
-      // Logic:
-      // WIN -> Move towards Court 1 (Subtract 1)
-      // LOSS -> Move towards Last Court (Add 1)
-      // DRAW -> Depends on Golden Point
-      
-      let moveDirection = 0; // -1 (Up/Better), +1 (Down/Worse), 0 (Stay? usually not possible in Sobe e Desce)
+      let moveDirection = 0;
 
       if (prevMatch.result === GameResult.WIN) {
           moveDirection = -1;
       } else if (prevMatch.result === GameResult.LOSS) {
           moveDirection = 1;
       } else if (prevMatch.result === GameResult.DRAW) {
-          // Check Golden Point
           if (prevMatch.goldenPointWon === true) {
-              moveDirection = -1; // Won golden point -> Up
+              moveDirection = -1;
           } else if (prevMatch.goldenPointWon === false) {
-              moveDirection = 1; // Lost golden point -> Down
+              moveDirection = 1;
           }
-          // If goldenPointWon is undefined (legacy data), maybe stay? Or assume Loss? Let's stay.
       }
 
-      nextCourt = currentCourt + moveDirection;
-
-      // Boundary Checks
+      let nextCourt = currentCourt + moveDirection;
       if (nextCourt < 1) nextCourt = 1;
       if (nextCourt > maxCourts) nextCourt = maxCourts;
 
       return nextCourt;
   };
 
-  // Auto-set game number AND calculated court when shift changes or submission happens
   useEffect(() => {
       if (selectedShift && viewMode === 'input') {
           const nextGame = getNextLogicalGame(selectedShift);
           const limit = getLimitForShift(selectedShift);
           
-          // Set Game Number
           if (nextGame <= limit) {
               setSelectedGame(nextGame);
           } else {
-              setSelectedGame(limit); // Or limit + 1 to show finished? Keep at limit.
+              setSelectedGame(limit);
           }
 
-          // Auto-Calculate Court for Game > 1
           if (nextGame > 1 && nextGame <= limit) {
               const calculatedCourt = calculateNextCourt(selectedShift, nextGame);
               setSelectedCourt(calculatedCourt);
           }
       }
   }, [selectedShift, matches.length, viewMode]);
-
 
   const getGamesPlayedCount = (playerId: string, shift: Shift) => {
     const tournamentDate = appState.nextSundayDate;
@@ -193,7 +171,7 @@ export const MatchTracker: React.FC<MatchTrackerProps> = ({ currentUser }) => {
     ).length;
   };
 
-  const checkResultConflict = (shift: Shift, game: number, court: number, myResult: GameResult): string | null => {
+  const checkResultConflict = (shift: Shift, game: number, court: number, myResult: GameResult): { msg: string, sub: string } | null => {
       const tournamentDate = appState.nextSundayDate;
       const existingMatches = matches.filter(m => 
           m.date === tournamentDate && 
@@ -205,14 +183,24 @@ export const MatchTracker: React.FC<MatchTrackerProps> = ({ currentUser }) => {
       for (const match of existingMatches) {
           if (match.playerIds.includes(currentUser.id)) continue;
 
-          if (match.result === GameResult.WIN && myResult === GameResult.WIN) return "Conflito: A outra equipa já registou Vitória.";
-          if (match.result === GameResult.WIN && myResult === GameResult.DRAW) return "Conflito: A outra equipa registou Vitória.";
-          if (match.result === GameResult.LOSS && myResult === GameResult.DRAW) return "Conflito: A outra equipa registou Derrota (logo ganhaste).";
-          if (match.result === GameResult.DRAW && myResult !== GameResult.DRAW) return "Conflito: A outra equipa registou Empate.";
+          const teamNames = match.playerIds.map(pid => getPlayerName(pid)).join(' & ');
+          
+          let conflictMsg = "";
+          if (match.result === GameResult.WIN && myResult === GameResult.WIN) conflictMsg = "A equipa adversária já registou Vitória.";
+          if (match.result === GameResult.WIN && myResult === GameResult.DRAW) conflictMsg = "A equipa adversária registou Vitória, não pode haver Empate.";
+          if (match.result === GameResult.LOSS && myResult === GameResult.DRAW) conflictMsg = "A equipa adversária registou Derrota, não pode haver Empate.";
+          if (match.result === GameResult.DRAW && myResult !== GameResult.DRAW) conflictMsg = "A equipa adversária registou Empate.";
+
+          if (conflictMsg) {
+              return {
+                  msg: conflictMsg,
+                  sub: `Conflito detectado com a equipa de: ${teamNames}`
+              };
+          }
       }
       
       const myMatch = existingMatches.find(m => m.playerIds.includes(currentUser.id));
-      if (myMatch) return "Já registaste um resultado para este Jogo e Campo.";
+      if (myMatch) return { msg: "Já registaste um resultado para este Jogo e Campo.", sub: "Se te enganaste, pede a um administrador para corrigir." };
 
       return null;
   };
@@ -221,15 +209,13 @@ export const MatchTracker: React.FC<MatchTrackerProps> = ({ currentUser }) => {
     e.preventDefault();
     if (!selfResult || !selectedShift) return;
     
-    // Validate Golden Point for Draw
     if (selfResult === GameResult.DRAW && goldenPointWon === null) {
-        alert("Em caso de empate, tens de indicar quem ganhou o Ponto de Ouro.");
+        setAlertConfig({ message: "Ponto de Ouro em Falta", subMessage: "Em caso de empate, tens de indicar quem ganhou o Ponto de Ouro." });
         return;
     }
 
     const tournamentDate = appState.nextSundayDate;
 
-    // 0. CHECK SEQUENTIAL ORDER
     if (selectedGame > 1) {
         const previousGame = selectedGame - 1;
         const hasPreviousMatch = matches.some(m => 
@@ -240,27 +226,24 @@ export const MatchTracker: React.FC<MatchTrackerProps> = ({ currentUser }) => {
         );
 
         if (!hasPreviousMatch) {
-            alert(`⚠️ Sequência incorreta!\n\nPrimeiro tens de registar o resultado do Jogo ${previousGame}.`);
+            setAlertConfig({ message: "Sequência Incorreta", subMessage: `Primeiro tens de registar o resultado do Jogo ${previousGame}.` });
             return;
         }
     }
 
-    // 1. Check Limits
     const limit = getLimitForShift(selectedShift);
     const playedCount = getGamesPlayedCount(currentUser.id, selectedShift);
     if (playedCount >= limit) {
-        alert(`Limite de jogos atingido.`);
+        setAlertConfig({ message: "Limite Atingido", subMessage: "Já completaste todos os jogos previstos para este turno." });
         return;
     }
 
-    // 2. Check Conflict
-    const conflictError = checkResultConflict(selectedShift, selectedGame, selectedCourt, selfResult);
-    if (conflictError) {
-        alert(conflictError);
+    const conflict = checkResultConflict(selectedShift, selectedGame, selectedCourt, selfResult);
+    if (conflict) {
+        setAlertConfig({ message: conflict.msg, subMessage: conflict.sub });
         return;
     }
 
-    // 3. Find Partner
     const allRegs = getRegistrations();
     const myRegistration = allRegs.find(r => 
         r.playerId === currentUser.id && 
@@ -273,7 +256,6 @@ export const MatchTracker: React.FC<MatchTrackerProps> = ({ currentUser }) => {
         playerIds.push(myRegistration.partnerId);
     }
 
-    // 4. Create Record
     const points = POINTS_MAP[selfResult];
     const record: MatchRecord = {
       id: generateUUID(),
@@ -298,13 +280,9 @@ export const MatchTracker: React.FC<MatchTrackerProps> = ({ currentUser }) => {
       setSubmitted(false);
       setSelfResult(null);
       setGoldenPointWon(null);
-      // Logic for next game/court is handled by useEffect on matches change
     }, 2500);
   };
 
-  // --- RENDER HELPERS ---
-
-  const getPlayerName = (id: string) => allPlayers.find(p => p.id === id)?.name || 'Desconhecido';
   const filteredHistoryMatches = matches
     .filter(m => m.date === historyDate)
     .filter(m => historyShift === 'ALL' || m.shift === historyShift)
@@ -314,11 +292,10 @@ export const MatchTracker: React.FC<MatchTrackerProps> = ({ currentUser }) => {
         return a.gameNumber - b.gameNumber;
     });
 
-  // VIEW MODE: HISTORY
   if (viewMode === 'history') {
       const dates = Array.from(new Set(matches.map(m => m.date))).sort().reverse();
       return (
-        <div className="bg-white rounded-xl shadow-lg overflow-hidden border-t-4 border-blue-600">
+        <div className="bg-white rounded-xl shadow-lg overflow-hidden border-t-4 border-blue-600 animate-fade-in">
             <div className="p-6">
                 <div className="flex justify-between items-start mb-6">
                     <div>
@@ -330,14 +307,14 @@ export const MatchTracker: React.FC<MatchTrackerProps> = ({ currentUser }) => {
                 <div className="bg-gray-50 p-4 rounded-lg mb-6 grid grid-cols-2 gap-4">
                     <div>
                         <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Data</label>
-                        <select value={historyDate} onChange={(e) => setHistoryDate(e.target.value)} className="w-full p-2 border rounded text-sm">
+                        <select value={historyDate} onChange={(e) => setHistoryDate(e.target.value)} className="w-full p-2 border rounded text-sm outline-none">
                             {dates.length === 0 && <option value="">Sem dados</option>}
                             {dates.map(d => <option key={d} value={d}>{d}</option>)}
                         </select>
                     </div>
                     <div>
                         <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Turno</label>
-                        <select value={historyShift} onChange={(e) => setHistoryShift(e.target.value as any)} className="w-full p-2 border rounded text-sm">
+                        <select value={historyShift} onChange={(e) => setHistoryShift(e.target.value as any)} className="w-full p-2 border rounded text-sm outline-none">
                             <option value="ALL">Todos</option>
                             {Object.values(Shift).map(s => <option key={s} value={s}>{s}</option>)}
                         </select>
@@ -369,10 +346,9 @@ export const MatchTracker: React.FC<MatchTrackerProps> = ({ currentUser }) => {
       );
   }
 
-  // VIEW MODE: INPUT
   if (availableShifts.length === 0) {
       return (
-          <div className="bg-white rounded-xl shadow p-8 text-center border-t-4 border-gray-300">
+          <div className="bg-white rounded-xl shadow p-8 text-center border-t-4 border-gray-300 animate-fade-in">
               <div className="flex justify-end mb-2">
                  <Button variant="ghost" onClick={() => setViewMode('history')} className="text-xs">📜 Ver Histórico</Button>
               </div>
@@ -392,7 +368,7 @@ export const MatchTracker: React.FC<MatchTrackerProps> = ({ currentUser }) => {
   const availableGames = Array.from({ length: currentShiftLimit }, (_, i) => i + 1);
 
   return (
-    <div className="bg-white rounded-xl shadow-lg overflow-hidden border-t-4 border-padel-dark">
+    <div className="bg-white rounded-xl shadow-lg overflow-hidden border-t-4 border-padel-dark relative animate-fade-in">
       <div className="p-6">
         <div className="flex justify-between items-start mb-6">
             <div>
@@ -415,7 +391,7 @@ export const MatchTracker: React.FC<MatchTrackerProps> = ({ currentUser }) => {
                 <select 
                     value={selectedShift}
                     onChange={(e) => setSelectedShift(e.target.value as Shift)}
-                    className="w-full p-3 border border-gray-300 rounded-lg bg-white font-bold text-gray-700"
+                    className="w-full p-3 border border-gray-300 rounded-lg bg-white font-bold text-gray-700 outline-none"
                 >
                     {availableShifts.map(s => <option key={s} value={s}>{s}</option>)}
                 </select>
@@ -427,8 +403,8 @@ export const MatchTracker: React.FC<MatchTrackerProps> = ({ currentUser }) => {
                     <select 
                         value={selectedGame}
                         onChange={(e) => setSelectedGame(Number(e.target.value))}
-                        disabled={true} // Locked to logic mostly
-                        className="w-full p-3 border border-gray-300 rounded-lg bg-gray-100 text-gray-600 cursor-not-allowed"
+                        disabled={true}
+                        className="w-full p-3 border border-gray-300 rounded-lg bg-gray-100 text-gray-600 cursor-not-allowed outline-none"
                     >
                         {availableGames.map(n => <option key={n} value={n}>Jogo {n}</option>)}
                     </select>
@@ -440,7 +416,7 @@ export const MatchTracker: React.FC<MatchTrackerProps> = ({ currentUser }) => {
                     <select 
                         value={selectedCourt}
                         onChange={(e) => setSelectedCourt(Number(e.target.value))}
-                        disabled={selectedGame > 1} // Disable manual change if it's calculated
+                        disabled={selectedGame > 1}
                         className={`w-full p-3 border rounded-lg bg-white outline-none focus:ring-2 focus:ring-padel ${selectedGame > 1 ? 'bg-gray-100 text-gray-600' : 'border-padel shadow-sm'}`}
                     >
                         {availableCourts.length > 0 
@@ -454,7 +430,7 @@ export const MatchTracker: React.FC<MatchTrackerProps> = ({ currentUser }) => {
                 </div>
             </div>
 
-            <div className="animate-fade-in">
+            <div>
                 <div className="mb-6 bg-gray-100 p-3 rounded-lg border border-gray-200">
                     <div className="flex justify-between items-center mb-2">
                         <span className="text-xs font-bold text-gray-600 uppercase">Progresso</span>
@@ -495,7 +471,6 @@ export const MatchTracker: React.FC<MatchTrackerProps> = ({ currentUser }) => {
                     </button>
                 </div>
 
-                {/* Golden Point Selector */}
                 {selfResult === GameResult.DRAW && (
                     <div className="mt-6 p-4 bg-yellow-50 rounded-lg border border-yellow-200 animate-slide-down">
                         <p className="text-center text-yellow-800 font-bold text-sm mb-3">Quem ganhou o Ponto de Ouro?</p>
@@ -525,6 +500,38 @@ export const MatchTracker: React.FC<MatchTrackerProps> = ({ currentUser }) => {
           </form>
         )}
       </div>
+
+      {/* CUSTOM ALERT MODAL: Mensagem do LevelUP */}
+      {alertConfig && (
+          <div className="fixed inset-0 bg-black/70 z-[100] flex items-center justify-center p-4 backdrop-blur-sm animate-fade-in">
+              <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm overflow-hidden border-t-8 border-padel">
+                  <div className="p-6 text-center">
+                      <div className="w-16 h-16 bg-padel/10 text-padel-dark rounded-full flex items-center justify-center mx-auto mb-4 text-3xl">
+                          🎾
+                      </div>
+                      <h3 className="text-xl font-black text-padel-dark mb-2 tracking-tight">Mensagem do LevelUP</h3>
+                      <div className="space-y-3">
+                        <p className="text-gray-800 font-bold leading-tight">
+                            {alertConfig.message}
+                        </p>
+                        {alertConfig.subMessage && (
+                            <p className="text-sm text-gray-500 leading-relaxed italic border-t border-gray-100 pt-3">
+                                {alertConfig.subMessage}
+                            </p>
+                        )}
+                      </div>
+                  </div>
+                  <div className="p-4 bg-gray-50">
+                      <Button 
+                        onClick={() => setAlertConfig(null)} 
+                        className="w-full py-3 font-black uppercase tracking-widest text-sm"
+                      >
+                          OK, Entendido
+                      </Button>
+                  </div>
+              </div>
+          </div>
+      )}
     </div>
   );
 };
