@@ -1,5 +1,5 @@
 
-import { Player, Registration, MatchRecord, AppState, Shift, CourtAllocation, MastersState, PasswordResetRequest, Message } from '../types';
+import { Player, Registration, MatchRecord, AppState, Shift, CourtAllocation, MastersState, PasswordResetRequest, Message, GameResult } from '../types';
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
 
 const KEYS = {
@@ -171,7 +171,8 @@ const defaultState: AppState = {
   },
   customLogo: undefined,
   isTournamentFinished: false,
-  passwordResetRequests: []
+  passwordResetRequests: [],
+  adminSectionOrder: ['config', 'visual', 'finish', 'report', 'registrations']
 };
 
 const defaultMastersState: MastersState = {
@@ -447,6 +448,62 @@ export const addMatch = async (match: MatchRecord, points: number): Promise<void
   }
 };
 
+/**
+ * Removes all matches for a specific date and reverts player points.
+ */
+export const deleteMatchesByDate = async (date: string): Promise<void> => {
+    let matches = getMatches();
+    const players = getPlayers();
+    
+    const matchesToDelete = matches.filter(m => m.date === date);
+    if (matchesToDelete.length === 0) return;
+
+    const pointsMap = {
+        [GameResult.WIN]: 4,
+        [GameResult.DRAW]: 2,
+        [GameResult.LOSS]: 1
+    };
+
+    const playersToUpdateMap: Record<string, Player> = {};
+
+    // Revert points for each player in each match being deleted
+    matchesToDelete.forEach(match => {
+        const pts = pointsMap[match.result] || 0;
+        match.playerIds.forEach(pid => {
+            const player = playersToUpdateMap[pid] || players.find(p => p.id === pid);
+            if (player) {
+                player.totalPoints = Math.max(0, player.totalPoints - pts);
+                player.gamesPlayed = Math.max(0, player.gamesPlayed - 1);
+                playersToUpdateMap[pid] = player;
+            }
+        });
+    });
+
+    // Filter out matches for this date
+    const updatedMatches = matches.filter(m => m.date !== date);
+    
+    // Update LocalStorage
+    localStorage.setItem(KEYS.MATCHES, JSON.stringify(updatedMatches));
+    
+    // Update affected players in LocalStorage
+    const updatedPlayers = players.map(p => playersToUpdateMap[p.id] || p);
+    localStorage.setItem(KEYS.PLAYERS, JSON.stringify(updatedPlayers));
+    
+    notifyListeners();
+
+    // Cloud Sync
+    if (supabase) {
+        // 1. Delete matches in Supabase
+        await supabase.from('matches').delete().eq('date', date);
+        
+        // 2. Update all affected players in Supabase
+        const playersToUpsert = Object.values(playersToUpdateMap);
+        if (playersToUpsert.length > 0) {
+            await supabase.from('players').upsert(playersToUpsert);
+        }
+    }
+};
+
 // --- Messaging System ---
 
 export const getMessages = (): Message[] => {
@@ -533,7 +590,8 @@ export const getAppState = (): AppState => {
         };
     }
     let passwordResetRequests = parsed.passwordResetRequests || [];
-    return { ...defaultState, ...parsed, gamesPerShift, courtConfig, passwordResetRequests };
+    let adminSectionOrder = parsed.adminSectionOrder || defaultState.adminSectionOrder;
+    return { ...defaultState, ...parsed, gamesPerShift, courtConfig, passwordResetRequests, adminSectionOrder };
   }
   return defaultState;
 };

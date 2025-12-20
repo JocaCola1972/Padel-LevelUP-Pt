@@ -78,6 +78,7 @@ export interface AppState {
   customLogo?: string; // Base64 string of the custom uploaded logo
   isTournamentFinished?: boolean;
   passwordResetRequests: PasswordResetRequest[]; // List of pending requests
+  adminSectionOrder?: string[]; // Ordem das secções no painel admin
 }
 
 // --- MASTERS LUP TYPES ---
