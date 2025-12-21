@@ -1,7 +1,7 @@
 
 import React, { useState, useEffect, useRef } from 'react';
-import { MastersState, MastersTeam, MastersMatch, Player } from '../types';
-import { getMastersState, saveMastersState, getPlayers, generateUUID } from '../services/storageService';
+import { MastersState, MastersTeam, MastersMatch, Player, AppState } from '../types';
+import { getMastersState, saveMastersState, getPlayers, generateUUID, getAppState, subscribeToChanges } from '../services/storageService';
 import { Button } from './Button';
 
 // Declare XLSX for sheetjs
@@ -13,6 +13,7 @@ interface MastersLupProps {
 
 export const MastersLup: React.FC<MastersLupProps> = ({ isAdmin }) => {
   const [state, setState] = useState<MastersState>(getMastersState());
+  const [appState, setAppState] = useState<AppState>(getAppState());
   const [players, setPlayers] = useState<Player[]>([]);
   
   // Admin Setup State
@@ -35,8 +36,16 @@ export const MastersLup: React.FC<MastersLupProps> = ({ isAdmin }) => {
   // Import State
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  useEffect(() => {
+  const loadData = () => {
+    setState(getMastersState());
+    setAppState(getAppState());
     setPlayers(getPlayers());
+  };
+
+  useEffect(() => {
+    loadData();
+    const unsubscribe = subscribeToChanges(loadData);
+    return () => unsubscribe();
   }, []);
 
   const save = (newState: MastersState) => {
@@ -260,9 +269,6 @@ export const MastersLup: React.FC<MastersLupProps> = ({ isAdmin }) => {
     const match = state.matches.find(m => m.id === matchId);
     if (!match) return;
     
-    // If clicking same winner, maybe do nothing? Or allow re-confirming.
-    // Let's allow opening the modal to re-confirm or if it was a mistake.
-    
     setPendingUpdate({
         matchId,
         winnerId,
@@ -327,10 +333,6 @@ export const MastersLup: React.FC<MastersLupProps> = ({ isAdmin }) => {
 
   const startPhase2 = () => {
      // Generate Phase 2 Matches
-     // 1º G1 vs 1º G3 -> Court 1
-     // 1º G2 vs 1º G4 -> Court 2
-     // 2º G1 vs 2º G3 -> Court 3 ... and so on
-     
      const g1 = getSortedGroupTeams('I');
      const g2 = getSortedGroupTeams('II');
      const g3 = getSortedGroupTeams('III');
@@ -362,14 +364,9 @@ export const MastersLup: React.FC<MastersLupProps> = ({ isAdmin }) => {
   };
 
   const startPhase3 = () => {
-      // Finals Logic
-      // Court 1 Winner vs Court 2 Winner -> Final (Court 1?) - Rules say "Vencedor Campo 1 vs Vencedor Campo 2"
-      // Wait, rules say "Campo 1 (Final) vs Campo 2" 
-      
       const p2Matches = state.matches.filter(m => m.phase === 2);
       const newMatches: MastersMatch[] = [];
 
-      // Helper to get winner/loser of specific court in Phase 2
       const getResult = (court: number) => {
           const m = p2Matches.find(m => m.courtNumber === court);
           if (!m || !m.winnerId) return null;
@@ -379,18 +376,13 @@ export const MastersLup: React.FC<MastersLupProps> = ({ isAdmin }) => {
           };
       };
 
-      // Final (C1 vs C2)
       const c1 = getResult(1);
       const c2 = getResult(2);
       if (c1 && c2) {
-          // Final: Winners
           newMatches.push({ id: generateUUID(), phase: 3, courtNumber: 1, team1Id: c1.winnerId, team2Id: c2.winnerId }); // Final
-          // 3rd/4th: Losers
           newMatches.push({ id: generateUUID(), phase: 3, courtNumber: 2, team1Id: c1.loserId, team2Id: c2.loserId }); 
       }
 
-      // Restantes
-      // C3 (Winner C3 vs Winner C4)
       const c3 = getResult(3);
       const c4 = getResult(4);
       if (c3 && c4) {
@@ -418,7 +410,6 @@ export const MastersLup: React.FC<MastersLupProps> = ({ isAdmin }) => {
   const renderMatchCard = (m: MastersMatch) => {
       const t1 = state.teams.find(t => t.id === m.team1Id);
       const t2 = state.teams.find(t => t.id === m.team2Id);
-      
       const isFinished = !!m.winnerId;
 
       return (
@@ -449,13 +440,7 @@ export const MastersLup: React.FC<MastersLupProps> = ({ isAdmin }) => {
       );
   };
 
-  // --- PREPARE POOL (Excel + Members) ---
-  // Combine both sources and remove duplicates
-  const pool = state.pool || [];
-  const memberNames = players.map(p => p.name);
-  const combinedPool = Array.from(new Set([...pool, ...memberNames]));
-
-  // Logic to filter used players
+  const combinedPool = getCombinedPool();
   const usedPlayers = new Set<string>();
   state.teams.forEach(t => {
       if(t.player1Name) usedPlayers.add(t.player1Name);
@@ -469,7 +454,6 @@ export const MastersLup: React.FC<MastersLupProps> = ({ isAdmin }) => {
   const phase3Matches = state.matches.filter(m => m.phase === 3);
   const finalMatch = phase3Matches.find(m => m.courtNumber === 1);
   const thirdPlaceMatch = phase3Matches.find(m => m.courtNumber === 2);
-
   const hasPodiumResults = finalMatch?.winnerId && thirdPlaceMatch?.winnerId;
 
   let firstPlace: MastersTeam | undefined;
@@ -508,22 +492,27 @@ export const MastersLup: React.FC<MastersLupProps> = ({ isAdmin }) => {
                 Torneio Especial de Natal • Earlybirds + Breakfast Club + Family Brunch
             </p>
             
-            {/* PODIUM DISPLAY (NEW DESIGN) */}
+            {/* PODIUM DISPLAY */}
             {hasPodiumResults && (
                 <>
                     <div className="relative overflow-hidden rounded-3xl shadow-2xl border-4 border-yellow-500/50 bg-[#0f172a] mb-8 animate-fade-in">
                         
-                        {/* Background Sunburst Effect (CSS) */}
+                        {/* Background Effects */}
                         <div className="absolute inset-0 opacity-40" style={{
                             background: 'radial-gradient(circle at 50% 100%, #1e3a8a 0%, #0f172a 70%)'
                         }}></div>
                         <div className="absolute top-0 left-0 right-0 h-full opacity-20 bg-[repeating-conic-gradient(#1e40af_0_15deg,transparent_15deg_30deg)] animate-spin-slow origin-bottom"></div>
 
                         <div className="relative z-10 p-6 md:p-10 pt-16 text-center">
-                            <h2 className="text-2xl md:text-4xl font-black text-transparent bg-clip-text bg-gradient-to-r from-yellow-200 via-yellow-400 to-yellow-200 tracking-[0.2em] uppercase mb-2 drop-shadow-lg">
+                            <h2 className="text-2xl md:text-4xl font-black text-transparent bg-clip-text bg-gradient-to-r from-yellow-200 via-yellow-400 to-yellow-200 tracking-[0.2em] uppercase mb-1 drop-shadow-lg">
                                 MASTERS LEVELUP
                             </h2>
-                            <h3 className="text-xl font-bold text-blue-200 mb-12 uppercase tracking-widest">Quadro de Honra</h3>
+                            <div className="flex flex-col items-center mb-8">
+                                <h3 className="text-xl font-bold text-blue-200 uppercase tracking-widest">Quadro de Honra</h3>
+                                <div className="mt-1 px-4 py-1 bg-yellow-500/20 border border-yellow-500/30 rounded-full">
+                                    <span className="text-yellow-400 font-mono text-sm font-bold">{appState.nextSundayDate}</span>
+                                </div>
+                            </div>
 
                             <div className="flex flex-col md:flex-row items-end justify-center gap-4 md:gap-6 mt-4">
                                 
@@ -547,7 +536,6 @@ export const MastersLup: React.FC<MastersLupProps> = ({ isAdmin }) => {
                                         <span className="text-5xl drop-shadow-[0_0_15px_rgba(234,179,8,0.8)]">👑</span>
                                     </div>
                                     
-                                    {/* MOVED TITLE ABOVE BOX */}
                                     <div className="text-yellow-300 font-black text-sm md:text-base uppercase tracking-[0.2em] mb-2 drop-shadow-[0_2px_2px_rgba(0,0,0,0.8)]">
                                         Campeões
                                     </div>
@@ -700,8 +688,6 @@ export const MastersLup: React.FC<MastersLupProps> = ({ isAdmin }) => {
             {state.currentPhase === 1 && state.matches.length > 0 && (
                 <div className="space-y-8 animate-fade-in">
                     <h3 className="text-xl font-bold text-gray-700 border-b pb-2">Fase 1: Grupos</h3>
-                    
-                    {/* Standings */}
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                          {['I', 'II', 'III', 'IV'].map(group => (
                             <div key={group} className="border rounded-lg overflow-hidden">
@@ -729,8 +715,6 @@ export const MastersLup: React.FC<MastersLupProps> = ({ isAdmin }) => {
                             </div>
                         ))}
                     </div>
-
-                    {/* Matches */}
                     <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
                         {state.matches.filter(m => m.phase === 1).map(renderMatchCard)}
                     </div>
@@ -744,31 +728,25 @@ export const MastersLup: React.FC<MastersLupProps> = ({ isAdmin }) => {
                          <h3 className={`text-xl font-bold cursor-pointer ${state.currentPhase === 2 ? 'text-padel-dark underline' : 'text-gray-400'}`}>Fase 2: Meias/Cruzamentos</h3>
                          {state.currentPhase === 3 && <h3 className="text-xl font-bold text-padel-dark underline">Fase 3: Finais</h3>}
                      </div>
-
                      <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4">
                         {state.matches.filter(m => m.phase === state.currentPhase).sort((a,b) => a.courtNumber - b.courtNumber).map(renderMatchCard)}
                      </div>
                 </div>
             )}
-
         </div>
 
-        {/* Update Result Confirmation Modal */}
+        {/* Modal Components */}
         {pendingUpdate && (
              <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4 animate-fade-in backdrop-blur-sm">
                 <div className="bg-white rounded-xl shadow-2xl p-6 w-full max-w-sm border-t-4 border-blue-500">
                     <div className="text-center mb-6">
-                        <div className="w-16 h-16 bg-blue-100 rounded-full flex items-center justify-center mb-4 mx-auto text-3xl">
-                            ✅
-                        </div>
+                        <div className="w-16 h-16 bg-blue-100 rounded-full flex items-center justify-center mb-4 mx-auto text-3xl">✅</div>
                         <h3 className="text-xl font-bold text-gray-800">Confirmar Resultado?</h3>
-                        
                         {pendingUpdate.currentWinnerId && pendingUpdate.currentWinnerId !== pendingUpdate.winnerId && (
                             <div className="mt-3 p-2 bg-yellow-50 border border-yellow-200 rounded text-xs text-yellow-800">
                                 ⚠️ Atenção: Este jogo já tinha um vencedor registado. Deseja alterar?
                             </div>
                         )}
-
                         <div className="mt-4">
                             <p className="text-xs text-gray-500 uppercase font-bold">Vencedor Selecionado:</p>
                             <p className="text-lg font-bold text-green-700">
@@ -779,127 +757,58 @@ export const MastersLup: React.FC<MastersLupProps> = ({ isAdmin }) => {
                             </p>
                         </div>
                     </div>
-                    
                     <div className="flex gap-3">
-                        <Button 
-                            variant="secondary" 
-                            onClick={() => setPendingUpdate(null)} 
-                            className="flex-1"
-                        >
-                            Cancelar
-                        </Button>
-                        <Button 
-                            onClick={confirmMatchResultUpdate} 
-                            className="flex-1 bg-green-600 hover:bg-green-700"
-                        >
-                            Confirmar
-                        </Button>
+                        <Button variant="secondary" onClick={() => setPendingUpdate(null)} className="flex-1">Cancelar</Button>
+                        <Button onClick={confirmMatchResultUpdate} className="flex-1 bg-green-600 hover:bg-green-700">Confirmar</Button>
                     </div>
                 </div>
             </div>
         )}
 
-        {/* Delete Team Confirmation Modal */}
         {teamToDelete && (
             <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4 animate-fade-in backdrop-blur-sm">
                 <div className="bg-white rounded-xl shadow-2xl p-6 w-full max-w-sm border-t-4 border-red-500">
                     <div className="text-center mb-6">
-                        <div className="w-16 h-16 bg-red-100 rounded-full flex items-center justify-center mb-4 mx-auto text-3xl">
-                            ⚠️
-                        </div>
+                        <div className="w-16 h-16 bg-red-100 rounded-full flex items-center justify-center mb-4 mx-auto text-3xl">⚠️</div>
                         <h3 className="text-xl font-bold text-gray-800">Eliminar Equipa?</h3>
-                        <p className="text-sm text-gray-600 mt-2">
-                            Vai remover a equipa <br/>
-                            <span className="font-bold text-gray-800">{teamToDelete.player1Name} & {teamToDelete.player2Name}</span>
-                            <br/> do Grupo {teamToDelete.group}.
-                        </p>
+                        <p className="text-sm text-gray-600 mt-2">Vai remover a equipa <br/><span className="font-bold text-gray-800">{teamToDelete.player1Name} & {teamToDelete.player2Name}</span><br/> do Grupo {teamToDelete.group}.</p>
                     </div>
-                    
                     <div className="flex gap-3">
-                        <Button 
-                            variant="secondary" 
-                            onClick={() => setTeamToDelete(null)} 
-                            className="flex-1"
-                        >
-                            Cancelar
-                        </Button>
-                        <Button 
-                            variant="danger" 
-                            onClick={confirmRemoveTeam} 
-                            className="flex-1"
-                        >
-                            Eliminar
-                        </Button>
+                        <Button variant="secondary" onClick={() => setTeamToDelete(null)} className="flex-1">Cancelar</Button>
+                        <Button variant="danger" onClick={confirmRemoveTeam} className="flex-1">Eliminar</Button>
                     </div>
                 </div>
             </div>
         )}
 
-        {/* Reset Tournament Confirmation Modal */}
         {showResetConfirmation && (
             <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4 animate-fade-in backdrop-blur-sm">
-                <div className="bg-white rounded-xl shadow-2xl p-6 w-full max-w-sm border-t-4 border-red-600">
+                <div className="bg-white rounded-xl shadow-2xl p-6 w-full max-w-sm border-t-4 border-red-500">
                     <div className="text-center mb-6">
-                        <div className="w-16 h-16 bg-red-100 rounded-full flex items-center justify-center mb-4 mx-auto text-3xl">
-                            💣
-                        </div>
+                        <div className="w-16 h-16 bg-red-100 rounded-full flex items-center justify-center mb-4 mx-auto text-3xl">💣</div>
                         <h3 className="text-xl font-bold text-red-600">Reiniciar Torneio?</h3>
-                        <p className="text-sm text-gray-700 mt-2 font-bold">
-                            Esta ação é irreversível.
-                        </p>
-                        <p className="text-xs text-gray-500 mt-2">
-                            Todas as equipas, jogos, resultados e classificações do Masters serão apagados permanentemente.
-                        </p>
+                        <p className="text-sm text-gray-700 mt-2 font-bold">Esta ação é irreversível.</p>
+                        <p className="text-xs text-gray-500 mt-2">Todas as equipas, jogos, resultados e classificações do Masters serão apagados permanentemente.</p>
                     </div>
-                    
                     <div className="flex gap-3">
-                        <Button 
-                            variant="secondary" 
-                            onClick={() => setShowResetConfirmation(false)} 
-                            className="flex-1"
-                        >
-                            Cancelar
-                        </Button>
-                        <Button 
-                            variant="danger" 
-                            onClick={executeReset} 
-                            className="flex-1"
-                        >
-                            Sim, Reiniciar
-                        </Button>
+                        <Button variant="secondary" onClick={() => setShowResetConfirmation(false)} className="flex-1">Cancelar</Button>
+                        <Button variant="danger" onClick={executeReset} className="flex-1">Sim, Reiniciar</Button>
                     </div>
                 </div>
             </div>
         )}
 
-        {/* Auto Fill Confirmation Modal */}
         {showAutoFillConfirmation && (
             <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4 animate-fade-in backdrop-blur-sm">
                 <div className="bg-white rounded-xl shadow-2xl p-6 w-full max-w-sm border-t-4 border-purple-600">
                     <div className="text-center mb-6">
-                        <div className="w-16 h-16 bg-purple-100 rounded-full flex items-center justify-center mb-4 mx-auto text-3xl">
-                            🎲
-                        </div>
+                        <div className="w-16 h-16 bg-purple-100 rounded-full flex items-center justify-center mb-4 mx-auto text-3xl">🎲</div>
                         <h3 className="text-xl font-bold text-purple-800">Preenchimento Automático</h3>
-                        <p className="text-sm text-gray-600 mt-2">
-                            O sistema vai distribuir aleatoriamente <strong>32 jogadores</strong> (ou os restantes necessários) pelos grupos até completar 16 equipas.
-                        </p>
+                        <p className="text-sm text-gray-600 mt-2">O sistema vai distribuir aleatoriamente <strong>32 jogadores</strong> (ou os restantes necessários) pelos grupos até completar 16 equipas.</p>
                     </div>
-                    
                     <div className="flex gap-3">
-                        <Button 
-                            variant="secondary" 
-                            onClick={() => setShowAutoFillConfirmation(false)} 
-                            className="flex-1"
-                        >
-                            Cancelar
-                        </Button>
-                        <Button 
-                            onClick={executeAutoFill} 
-                            className="flex-1 bg-purple-600 hover:bg-purple-700"
-                        >
-                            Confirmar
-                        </Button>
+                        <Button variant="secondary" onClick={() => setShowAutoFillConfirmation(false)} className="flex-1">Cancelar</Button>
+                        <Button onClick={executeAutoFill} className="flex-1 bg-purple-600 hover:bg-purple-700">Confirmar</Button>
                     </div>
                 </div>
             </div>
