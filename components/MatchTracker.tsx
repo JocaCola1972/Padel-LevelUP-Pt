@@ -52,8 +52,9 @@ export const MatchTracker: React.FC<MatchTrackerProps> = ({ currentUser }) => {
     setAppState(currentState);
     setAllPlayers(players);
 
+    // FIX: Include shifts where I am the partner (partnerId)
     const myShifts = registrations
-        .filter(r => r.playerId === currentUser.id && r.date === currentState.nextSundayDate && r.type === 'game')
+        .filter(r => (r.playerId === currentUser.id || r.partnerId === currentUser.id) && r.date === currentState.nextSundayDate && r.type === 'game')
         .map(r => r.shift);
     
     const uniqueShifts = Array.from(new Set(myShifts));
@@ -245,14 +246,21 @@ export const MatchTracker: React.FC<MatchTrackerProps> = ({ currentUser }) => {
     }
 
     const allRegs = getRegistrations();
+    // FIX: Find registration where user is EITHER player OR partner
     const myRegistration = allRegs.find(r => 
-        r.playerId === currentUser.id && 
+        (r.playerId === currentUser.id || r.partnerId === currentUser.id) && 
         r.shift === selectedShift && 
         r.date === tournamentDate
     );
 
-    const playerIds = [currentUser.id];
-    if (myRegistration && myRegistration.partnerId) {
+    if (!myRegistration) {
+        setAlertConfig({ message: "Erro de Registo", subMessage: "Não foi possível encontrar a tua inscrição para este turno." });
+        return;
+    }
+
+    // Identificar corretamente ambos os membros da equipa a partir da inscrição encontrada
+    const playerIds = [myRegistration.playerId];
+    if (myRegistration.partnerId) {
         playerIds.push(myRegistration.partnerId);
     }
 
