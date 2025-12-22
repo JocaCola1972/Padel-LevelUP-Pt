@@ -339,6 +339,21 @@ export const RegistrationPanel: React.FC<RegistrationPanelProps> = ({ currentUse
       setTimeout(loadData, 100);
   };
 
+  const handleClaimSlot = (reg: Registration) => {
+    const { remaining } = getShiftAvailability(reg.shift, reg.type || 'game');
+    const needed = reg.hasPartner ? 2 : 1;
+    
+    if (remaining < needed) {
+        alert(`Infelizmente a vaga já foi preenchida por outro jogador. Restam ${remaining} vagas.`);
+        return;
+    }
+
+    updateRegistration(reg.id, { isWaitingList: false });
+    setSuccessMsg('Lugar confirmado! Bem-vindo ao turno.');
+    setTimeout(() => setSuccessMsg(''), 3000);
+    loadData();
+  };
+
   const renderMyRegistrations = () => {
     if (myRegistrations.length === 0) return <p className="text-sm text-gray-400 italic">Nenhuma inscrição ativa.</p>;
 
@@ -350,9 +365,13 @@ export const RegistrationPanel: React.FC<RegistrationPanelProps> = ({ currentUse
                     const partnerPhoto = allPlayers.find(p => p.id === r.partnerId)?.photoUrl;
                     const isTraining = r.type === 'training';
                     const isWaiting = r.isWaitingList;
+                    
+                    // Verificar se há vaga disponível agora para este suplente
+                    const { remaining } = getShiftAvailability(r.shift, r.type || 'game');
+                    const canPromote = isWaiting && remaining >= (r.hasPartner ? 2 : 1);
 
                     return (
-                        <li key={r.id} className="bg-white p-3 rounded-lg shadow-sm border border-gray-100 flex items-center justify-between group">
+                        <li key={r.id} className={`bg-white p-3 rounded-lg shadow-sm border flex items-center justify-between group transition-all ${canPromote ? 'ring-2 ring-yellow-400 border-yellow-200' : 'border-gray-100'}`}>
                             <div className="flex items-center gap-3">
                                 <div className={`text-xs font-bold px-2 py-1 rounded border flex flex-col items-center min-w-[60px] ${
                                     isWaiting 
@@ -387,6 +406,14 @@ export const RegistrationPanel: React.FC<RegistrationPanelProps> = ({ currentUse
                             </div>
 
                             <div className="flex gap-2">
+                                {canPromote && (
+                                    <button
+                                        onClick={() => handleClaimSlot(r)}
+                                        className="bg-yellow-400 text-yellow-900 text-[10px] font-black px-3 py-1 rounded-full animate-pulse hover:bg-yellow-500 shadow-sm"
+                                    >
+                                        OCUPAR VAGA ⚡
+                                    </button>
+                                )}
                                 {!isTraining && (
                                     <button
                                         type="button"
@@ -496,6 +523,7 @@ export const RegistrationPanel: React.FC<RegistrationPanelProps> = ({ currentUse
                       </div>
                       <div>
                           <label className="block text-xs font-bold text-gray-700 mb-1">Telemóvel</label>
+                          {/* Fixed typo: changed setNewPhone to setNewPartnerPhone as per the state definition on line 31 */}
                           <input type="tel" value={newPartnerPhone} onChange={(e) => setNewPartnerPhone(e.target.value)} className="w-full p-2 border border-gray-300 rounded outline-none" />
                       </div>
                   </div>
@@ -592,7 +620,7 @@ export const RegistrationPanel: React.FC<RegistrationPanelProps> = ({ currentUse
         {/* Waiting List Prompt Modal */}
         {waitingListPrompt && (
             <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4 animate-fade-in backdrop-blur-sm">
-                <div className="bg-white rounded-xl shadow-2xl p-6 w-full max-w-sm border-t-4 border-yellow-500">
+                <div className="bg-white rounded-xl shadow-2xl p-6 w-full max-sm border-t-4 border-yellow-500">
                     <div className="text-center mb-6">
                         <div className="w-16 h-16 bg-yellow-100 rounded-full flex items-center justify-center mb-4 mx-auto text-3xl">⏳</div>
                         <h3 className="text-xl font-bold text-gray-800 mb-2">Turno Completo</h3>
@@ -610,7 +638,7 @@ export const RegistrationPanel: React.FC<RegistrationPanelProps> = ({ currentUse
         {/* Modal Cancelar e Edit Partner omitted for brevity but should be kept in real app */}
         {editingRegId && (
             <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4 animate-fade-in">
-                <div className="bg-white rounded-xl shadow-2xl p-6 w-full max-w-sm">
+                <div className="bg-white rounded-xl shadow-2xl p-6 w-full max-sm">
                     <h3 className="text-xl font-bold mb-4 text-gray-800">Alterar Dupla</h3>
                     {renderSearchUI(true)}
                     <div className="flex gap-2 mt-6">
@@ -629,7 +657,7 @@ export const RegistrationPanel: React.FC<RegistrationPanelProps> = ({ currentUse
         
         {cancelTarget && (
             <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4 animate-fade-in backdrop-blur-sm">
-                <div className="bg-white rounded-xl shadow-2xl p-6 w-full max-w-sm border-t-4 border-red-500">
+                <div className="bg-white rounded-xl shadow-2xl p-6 w-full max-sm border-t-4 border-red-500">
                     <div className="text-center mb-6">
                         <h3 className="text-xl font-bold mb-2">Cancelar Inscrição?</h3>
                         <p className="text-sm text-gray-600">Vais libertar o teu lugar para outros jogadores.</p>

@@ -67,31 +67,35 @@ export const NotificationModal: React.FC<NotificationModalProps> = ({ currentUse
                             Não tens novas mensagens.
                         </div>
                     ) : (
-                        messages.map(msg => (
-                            <div key={msg.id} className="bg-white border border-gray-100 shadow-sm rounded-lg p-3 group relative transition-all hover:border-padel-light/50">
-                                <div className="flex justify-between items-start mb-2">
-                                    <div className="flex items-center gap-1">
-                                        <span className="text-xs font-bold text-padel-blue">
-                                            {msg.senderId === currentUser.id ? 'Eu' : msg.senderName}
-                                        </span>
-                                        {msg.receiverId === 'ALL' && <span className="bg-purple-100 text-purple-700 px-1 rounded text-[9px] font-black uppercase">Broadcast</span>}
+                        messages.map(msg => {
+                            const isSystem = msg.senderId === 'SYSTEM';
+                            return (
+                                <div key={msg.id} className={`border shadow-sm rounded-lg p-3 group relative transition-all ${isSystem ? 'bg-yellow-50 border-yellow-200 ring-1 ring-yellow-400/20' : 'bg-white border-gray-100 hover:border-padel-light/50'}`}>
+                                    <div className="flex justify-between items-start mb-2">
+                                        <div className="flex items-center gap-1">
+                                            <span className={`text-xs font-black ${isSystem ? 'text-yellow-700' : 'text-padel-blue'}`}>
+                                                {msg.senderId === currentUser.id ? 'Eu' : msg.senderName}
+                                            </span>
+                                            {msg.receiverId === 'ALL' && <span className="bg-purple-100 text-purple-700 px-1 rounded text-[9px] font-black uppercase">Broadcast</span>}
+                                            {isSystem && <span className="bg-yellow-400 text-yellow-900 px-1 rounded text-[9px] font-black uppercase animate-pulse">Urgente</span>}
+                                        </div>
+                                        <div className="flex items-center gap-2">
+                                            <span className="text-[10px] text-gray-400">
+                                                {new Date(msg.timestamp).toLocaleDateString()} {new Date(msg.timestamp).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}
+                                            </span>
+                                            <button 
+                                                onClick={() => handleDelete(msg.id)}
+                                                className="text-gray-300 hover:text-red-500 transition-colors p-1"
+                                                title="Apagar mensagem"
+                                            >
+                                                🗑️
+                                            </button>
+                                        </div>
                                     </div>
-                                    <div className="flex items-center gap-2">
-                                        <span className="text-[10px] text-gray-400">
-                                            {new Date(msg.timestamp).toLocaleDateString()} {new Date(msg.timestamp).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}
-                                        </span>
-                                        <button 
-                                            onClick={() => handleDelete(msg.id)}
-                                            className="text-gray-300 hover:text-red-500 transition-colors p-1"
-                                            title="Apagar mensagem"
-                                        >
-                                            🗑️
-                                        </button>
-                                    </div>
+                                    <p className={`text-sm whitespace-pre-wrap ${isSystem ? 'text-yellow-900 font-medium' : 'text-gray-700'}`}>{msg.content}</p>
                                 </div>
-                                <p className="text-sm text-gray-700 whitespace-pre-wrap">{msg.content}</p>
-                            </div>
-                        ))
+                            );
+                        })
                     )}
                 </div>
 

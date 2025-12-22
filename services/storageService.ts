@@ -429,6 +429,37 @@ export const updateRegistration = async (id: string, updates: Partial<Registrati
 
 export const removeRegistration = async (id: string): Promise<void> => {
   let regs = getRegistrations();
+  const regToRemove = regs.find(r => r.id === id);
+  
+  if (!regToRemove) return;
+
+  // Se a inscrição era confirmada (não suplente), avisar suplentes
+  if (!regToRemove.isWaitingList) {
+      const substitutes = regs.filter(r => 
+          r.isWaitingList && 
+          r.shift === regToRemove.shift && 
+          r.date === regToRemove.date && 
+          r.type === regToRemove.type
+      );
+      
+      if (substitutes.length > 0) {
+          const activityName = regToRemove.type === 'training' ? 'TREINO' : 'JOGOS';
+          const messageContent = `Vaga disponível no turno das ${regToRemove.shift} (${activityName}). Vai ao painel de inscrições para ocupar o lugar!`;
+          
+          substitutes.forEach(sub => {
+              saveMessage({
+                  id: generateUUID(),
+                  senderId: 'SYSTEM',
+                  senderName: 'LevelUP Bot 🎾',
+                  receiverId: sub.playerId,
+                  content: messageContent,
+                  timestamp: Date.now(),
+                  read: false
+              });
+          });
+      }
+  }
+
   regs = regs.filter(r => r.id !== id);
   localStorage.setItem(KEYS.REGISTRATIONS, JSON.stringify(regs));
   notifyListeners();
