@@ -618,6 +618,41 @@ export const deleteMessageForUser = async (messageId: string, userId: string): P
     }
 };
 
+export const deleteAllMessagesForUser = async (userId: string): Promise<void> => {
+    const currentMessages = getMessagesForUser(userId);
+    if (currentMessages.length === 0) return;
+
+    const privateIdsToDelete: string[] = [];
+    const broadcastIdsToHide: string[] = [];
+
+    currentMessages.forEach(msg => {
+        if (msg.receiverId === userId) {
+            privateIdsToDelete.push(msg.id);
+        } else if (msg.receiverId === 'ALL') {
+            broadcastIdsToHide.push(msg.id);
+        }
+    });
+
+    // 1. Apagar mensagens privadas do store global
+    if (privateIdsToDelete.length > 0) {
+        const allMessages = getMessages();
+        const updatedMessages = allMessages.filter(m => !privateIdsToDelete.includes(m.id));
+        localStorage.setItem(KEYS.MESSAGES, JSON.stringify(updatedMessages));
+        if (supabase) await supabase.from('messages').delete().in('id', privateIdsToDelete);
+    }
+
+    // 2. Esconder broadcasts localmente
+    if (broadcastIdsToHide.length > 0) {
+        const key = `padel_deleted_broadcasts_${userId}`;
+        const data = localStorage.getItem(key);
+        const deletedList: string[] = data ? JSON.parse(data) : [];
+        const newList = Array.from(new Set([...deletedList, ...broadcastIdsToHide]));
+        localStorage.setItem(key, JSON.stringify(newList));
+    }
+
+    notifyListeners();
+};
+
 export const getUnreadCount = (userId: string): number => {
     const allMsgs = getMessagesForUser(userId);
     const readKey = `padel_read_broadcasts_${userId}`;
