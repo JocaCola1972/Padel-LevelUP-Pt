@@ -172,7 +172,7 @@ export const MatchTracker: React.FC<MatchTrackerProps> = ({ currentUser }) => {
     ).length;
   };
 
-  const checkResultConflict = (shift: Shift, game: number, court: number, myResult: GameResult): { msg: string, sub: string } | null => {
+  const checkResultConflict = (shift: Shift, game: number, court: number, myResult: GameResult, myGoldenPointWon?: boolean): { msg: string, sub: string } | null => {
       const tournamentDate = appState.nextSundayDate;
       const existingMatches = matches.filter(m => 
           m.date === tournamentDate && 
@@ -191,6 +191,15 @@ export const MatchTracker: React.FC<MatchTrackerProps> = ({ currentUser }) => {
           if (match.result === GameResult.WIN && myResult === GameResult.DRAW) conflictMsg = "A equipa adversária registou Vitória, não pode haver Empate.";
           if (match.result === GameResult.LOSS && myResult === GameResult.DRAW) conflictMsg = "A equipa adversária registou Derrota, não pode haver Empate.";
           if (match.result === GameResult.DRAW && myResult !== GameResult.DRAW) conflictMsg = "A equipa adversária registou Empate.";
+          
+          // Validação de Ponto de Ouro em caso de Empate mútuo
+          if (match.result === GameResult.DRAW && myResult === GameResult.DRAW) {
+              if (match.goldenPointWon === myGoldenPointWon) {
+                  conflictMsg = myGoldenPointWon 
+                    ? "Ambas as equipas reclamaram a vitória no Ponto de Ouro." 
+                    : "Ambas as equipas reclamaram a derrota no Ponto de Ouro.";
+              }
+          }
 
           if (conflictMsg) {
               return {
@@ -239,7 +248,14 @@ export const MatchTracker: React.FC<MatchTrackerProps> = ({ currentUser }) => {
         return;
     }
 
-    const conflict = checkResultConflict(selectedShift, selectedGame, selectedCourt, selfResult);
+    const conflict = checkResultConflict(
+        selectedShift, 
+        selectedGame, 
+        selectedCourt, 
+        selfResult, 
+        goldenPointWon !== null ? goldenPointWon : undefined
+    );
+
     if (conflict) {
         setAlertConfig({ message: conflict.msg, subMessage: conflict.sub });
         return;
