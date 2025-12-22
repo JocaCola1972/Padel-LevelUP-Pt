@@ -1,3 +1,4 @@
+
 import { GoogleGenAI } from "@google/genai";
 import { Player } from "../types";
 
@@ -29,10 +30,12 @@ export const generateRankingAnalysis = async (topPlayers: Player[]): Promise<str
   `;
 
   try {
+    // Corrected model to 'gemini-3-flash-preview' for basic text tasks
     const response = await ai.models.generateContent({
-      model: 'gemini-2.5-flash',
+      model: 'gemini-3-flash-preview',
       contents: prompt,
     });
+    // Accessing .text property directly as per instructions
     return response.text || "Não foi possível gerar a análise.";
   } catch (error) {
     console.error("Error generating analysis:", error);
@@ -47,10 +50,12 @@ export const generateTacticalTip = async (): Promise<string> => {
     const prompt = "Dá-me uma dica tática curta e avançada para Padel (máximo 1 frase) em Português.";
 
     try {
+        // Corrected model to 'gemini-3-flash-preview' for basic text tasks
         const response = await ai.models.generateContent({
-            model: 'gemini-2.5-flash',
+            model: 'gemini-3-flash-preview',
             contents: prompt,
         });
+        // Accessing .text property directly as per instructions
         return response.text || "Mantenha os olhos na bola!";
     } catch (error) {
         return "Concentre-se no jogo!";

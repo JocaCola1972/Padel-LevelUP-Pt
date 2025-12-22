@@ -33,6 +33,7 @@ export interface Registration {
   date: string;
   hasPartner: boolean;
   type?: 'game' | 'training'; // New field: distinguish activity
+  isWaitingList?: boolean; // New field: track if user is a substitute
 }
 
 export interface MatchRecord {
