@@ -12,10 +12,12 @@ import { MembersList } from './components/MembersList';
 import { ProfileModal } from './components/ProfileModal';
 import { MastersLup } from './components/MastersLup';
 import { NotificationModal } from './components/NotificationModal';
+import { LevelUpInfo } from './components/LevelUpInfo';
 import { generateTacticalTip } from './services/geminiService';
 import { getAppState, getUnreadCount, initCloudSync, isFirebaseConnected, subscribeToChanges, getPlayers, updateAppState } from './services/storageService';
 
 enum Tab {
+  LEVELUP = 'levelup',
   REGISTRATION = 'registrations',
   INSCRITOS = 'inscritos',
   MATCHES = 'matches',
@@ -58,7 +60,7 @@ const App: React.FC = () => {
   const [viewState, setViewState] = useState<ViewState>(initialUser ? ViewState.APP : ViewState.LANDING);
   
   const [authMode, setAuthMode] = useState<'login' | 'register'>('login');
-  const [activeTab, setActiveTab] = useState<Tab>(Tab.REGISTRATION);
+  const [activeTab, setActiveTab] = useState<Tab>(Tab.LEVELUP); // Definido como LEVELUP por defeito
   const [tip, setTip] = useState<string>('');
   
   const [isProfileOpen, setIsProfileOpen] = useState(false);
@@ -176,14 +178,14 @@ const App: React.FC = () => {
     localStorage.setItem(SESSION_KEY, player.id);
     setCurrentUser(player);
     setViewState(ViewState.APP);
-    setActiveTab(Tab.REGISTRATION);
+    setActiveTab(Tab.LEVELUP); // Redireciona para LevelUP após login
   };
 
   const handleLogout = () => {
     localStorage.removeItem(SESSION_KEY);
     setCurrentUser(null);
     setViewState(ViewState.LANDING);
-    setActiveTab(Tab.REGISTRATION);
+    setActiveTab(Tab.LEVELUP);
     setIsProfileOpen(false);
   };
 
@@ -277,6 +279,7 @@ const App: React.FC = () => {
             </div>
         )}
 
+        {activeTab === Tab.LEVELUP && <LevelUpInfo />}
         {activeTab === Tab.REGISTRATION && <RegistrationPanel currentUser={currentUser} />}
         {activeTab === Tab.INSCRITOS && <InscritosList />}
         {activeTab === Tab.MATCHES && <MatchTracker currentUser={currentUser} />}
@@ -291,6 +294,12 @@ const App: React.FC = () => {
       {/* Bottom Navigation */}
       <nav className="fixed bottom-0 left-0 right-0 bg-white/95 backdrop-blur border-t border-gray-200 z-20 pb-safe shadow-[0_-5px_10px_rgba(0,0,0,0.05)] overflow-x-auto">
         <div className="max-w-md mx-auto flex justify-between px-1">
+          <NavButton 
+            active={activeTab === Tab.LEVELUP} 
+            onClick={() => setActiveTab(Tab.LEVELUP)}
+            icon="🚀"
+            label="LevelUP"
+          />
           <NavButton 
             active={activeTab === Tab.REGISTRATION} 
             onClick={() => setActiveTab(Tab.REGISTRATION)}
@@ -334,7 +343,7 @@ const App: React.FC = () => {
                     label="Membros"
                 />
                 {isSuperAdmin && pendingRequestsCount > 0 && (
-                    <span className="absolute top-1 right-2 bg-red-500 text-white text-[9px] font-bold px-1.5 rounded-full animate-bounce">
+                    <span className="absolute top-1 right-2 bg-red-500 text-white text-[9px] font-bold px-1.5 py-0.5 rounded-full animate-bounce">
                         {pendingRequestsCount}
                     </span>
                 )}
