@@ -13,7 +13,7 @@ import { ProfileModal } from './components/ProfileModal';
 import { MastersLup } from './components/MastersLup';
 import { NotificationModal } from './components/NotificationModal';
 import { generateTacticalTip } from './services/geminiService';
-import { getAppState, getUnreadCount, initCloudSync, isFirebaseConnected, subscribeToChanges, getPlayers } from './services/storageService';
+import { getAppState, getUnreadCount, initCloudSync, isFirebaseConnected, subscribeToChanges, getPlayers, updateAppState } from './services/storageService';
 
 enum Tab {
   REGISTRATION = 'registrations',
@@ -141,6 +141,31 @@ const App: React.FC = () => {
     };
 
   }, [currentUser]);
+
+  // 5. Automatic Registration Opening Logic
+  useEffect(() => {
+    const checkAutoOpen = () => {
+        const state = getAppState();
+        if (!state.registrationsOpen && state.autoOpenTime) {
+            const now = new Date();
+            const day = now.getDay(); // 0 = Sunday
+            const hours = now.getHours().toString().padStart(2, '0');
+            const minutes = now.getMinutes().toString().padStart(2, '0');
+            const currentTime = `${hours}:${minutes}`;
+
+            // We assume automatic opening is for Sunday by default, as per RegistrationPanel context
+            if (day === 0 && currentTime >= state.autoOpenTime) {
+                console.log("🚀 Abertura automática de inscrições acionada!");
+                updateAppState({ registrationsOpen: true });
+            }
+        }
+    };
+
+    const autoOpenInterval = setInterval(checkAutoOpen, 30000); // Check every 30 seconds
+    checkAutoOpen(); // Initial check
+
+    return () => clearInterval(autoOpenInterval);
+  }, []);
 
   const handleNavigateFromLanding = (mode: 'login' | 'register') => {
     setAuthMode(mode);

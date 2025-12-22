@@ -172,7 +172,8 @@ const defaultState: AppState = {
   customLogo: undefined,
   isTournamentFinished: false,
   passwordResetRequests: [],
-  adminSectionOrder: ['config', 'visual', 'finish', 'report', 'registrations']
+  adminSectionOrder: ['config', 'visual', 'finish', 'report', 'registrations'],
+  autoOpenTime: '15:00'
 };
 
 const defaultMastersState: MastersState = {
@@ -552,8 +553,19 @@ export const saveMessage = async (msg: Message): Promise<void> => {
 
 export const getMessagesForUser = (userId: string): Message[] => {
     const messages = getMessages();
+    
+    const deletedBroadcastKey = `padel_deleted_broadcasts_${userId}`;
+    const deletedBroadcastsData = localStorage.getItem(deletedBroadcastKey);
+    const deletedBroadcasts: string[] = deletedBroadcastsData ? JSON.parse(deletedBroadcastsData) : [];
+
     return messages
-        .filter(m => m.receiverId === userId || m.receiverId === 'ALL')
+        .filter(m => {
+            if (m.receiverId === userId) return true;
+            if (m.receiverId === 'ALL') {
+                return !deletedBroadcasts.includes(m.id);
+            }
+            return false;
+        })
         .sort((a, b) => b.timestamp - a.timestamp);
 };
 
@@ -577,6 +589,31 @@ export const markMessageAsRead = async (messageId: string, userId: string): Prom
                 localStorage.setItem(readKey, JSON.stringify(readList));
                 notifyListeners();
             }
+        }
+    }
+};
+
+export const deleteMessageForUser = async (messageId: string, userId: string): Promise<void> => {
+    const messages = getMessages();
+    const msg = messages.find(m => m.id === messageId);
+    
+    if (!msg) return;
+
+    if (msg.receiverId === userId) {
+        // Individual message: Delete the record entirely
+        const updated = messages.filter(m => m.id !== messageId);
+        localStorage.setItem(KEYS.MESSAGES, JSON.stringify(updated));
+        notifyListeners();
+        if (supabase) await supabase.from('messages').delete().eq('id', messageId);
+    } else if (msg.receiverId === 'ALL') {
+        // Broadcast message: Hide for this user only
+        const key = `padel_deleted_broadcasts_${userId}`;
+        const data = localStorage.getItem(key);
+        const deletedList: string[] = data ? JSON.parse(data) : [];
+        if (!deletedList.includes(messageId)) {
+            deletedList.push(messageId);
+            localStorage.setItem(key, JSON.stringify(deletedList));
+            notifyListeners();
         }
     }
 };

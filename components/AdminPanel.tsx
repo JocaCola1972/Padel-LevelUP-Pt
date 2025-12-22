@@ -84,6 +84,13 @@ export const AdminPanel: React.FC = () => {
     showMessageTemporarily();
   };
 
+  const updateAutoOpenTime = (time: string) => {
+    const newState = { ...state, autoOpenTime: time };
+    updateAppState(newState);
+    setState(newState);
+    showMessageTemporarily();
+  };
+
   const updateCourtConfig = (shift: Shift, type: 'game' | 'training', value: number) => {
     const safeValue = Math.max(0, Math.min(15, value));
     const newState = {
@@ -348,24 +355,47 @@ export const AdminPanel: React.FC = () => {
                         {controls}
                     </div>
                     <div className="space-y-6">
-                        <div className="flex items-center justify-between p-4 bg-gray-50 rounded-lg">
-                            <div>
-                                <h3 className="font-bold text-gray-700">Estado das Inscrições</h3>
-                                <p className="text-sm text-gray-500">
-                                    {state.registrationsOpen ? 'Abertas (Permite novas inscrições)' : 'Fechadas (Bloqueado)'}
-                                </p>
+                        <div className="p-4 bg-gray-50 rounded-lg space-y-4">
+                            <div className="flex items-center justify-between">
+                                <div>
+                                    <h3 className="font-bold text-gray-700">Estado das Inscrições</h3>
+                                    <p className="text-sm text-gray-500">
+                                        {state.registrationsOpen ? 'Abertas (Permite novas inscrições)' : 'Fechadas (Bloqueado)'}
+                                    </p>
+                                </div>
+                                <button
+                                    onClick={toggleRegistrations}
+                                    className={`px-6 py-2 rounded-full font-bold transition-colors ${
+                                        state.registrationsOpen 
+                                            ? 'bg-red-500 text-white hover:bg-red-600 shadow-red-200' 
+                                            : 'bg-green-500 text-white hover:bg-green-600 shadow-green-200'
+                                    }`}
+                                >
+                                    {state.registrationsOpen ? 'Fechar Inscrições' : 'Abrir Inscrições'}
+                                </button>
                             </div>
-                            <button
-                                onClick={toggleRegistrations}
-                                className={`px-6 py-2 rounded-full font-bold transition-colors ${
-                                    state.registrationsOpen 
-                                        ? 'bg-red-500 text-white hover:bg-red-600 shadow-red-200' 
-                                        : 'bg-green-500 text-white hover:bg-green-600 shadow-green-200'
-                                }`}
-                            >
-                                {state.registrationsOpen ? 'Fechar Inscrições' : 'Abrir Inscrições'}
-                            </button>
+                            
+                            <div className="pt-4 border-t border-gray-200">
+                                <h3 className="font-bold text-gray-700 text-sm mb-2">Agendamento de Abertura</h3>
+                                <div className="flex flex-col md:flex-row md:items-center gap-4">
+                                    <div className="flex-1">
+                                        <label className="block text-xs font-bold text-gray-400 uppercase mb-1">Hora de Abertura Automática (Domingos)</label>
+                                        <input 
+                                            type="time" 
+                                            value={state.autoOpenTime || ''}
+                                            onChange={(e) => updateAutoOpenTime(e.target.value)}
+                                            className="w-full p-2 border border-gray-300 rounded-lg outline-none focus:ring-2 focus:ring-padel font-mono text-lg"
+                                        />
+                                    </div>
+                                    <div className="md:w-1/2 p-3 bg-blue-50 rounded-lg border border-blue-100">
+                                        <p className="text-[10px] text-blue-800 leading-tight">
+                                            Se definida, as inscrições abrirão automaticamente na hora configurada (Geralmente aos Domingos). A abertura manual continua disponível.
+                                        </p>
+                                    </div>
+                                </div>
+                            </div>
                         </div>
+
                         <div className="p-4 bg-gray-50 rounded-lg">
                             <h3 className="font-bold text-gray-700 mb-2">Data do Próximo Jogo (Inscrições)</h3>
                             <div className="flex gap-4 items-center">

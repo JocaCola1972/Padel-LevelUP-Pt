@@ -79,6 +79,7 @@ export interface AppState {
   isTournamentFinished?: boolean;
   passwordResetRequests: PasswordResetRequest[]; // List of pending requests
   adminSectionOrder?: string[]; // Ordem das secções no painel admin
+  autoOpenTime?: string; // HH:mm format for automatic registration opening
 }
 
 // --- MASTERS LUP TYPES ---
