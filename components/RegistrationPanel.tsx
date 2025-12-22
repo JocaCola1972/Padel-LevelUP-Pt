@@ -658,7 +658,10 @@ export const RegistrationPanel: React.FC<RegistrationPanelProps> = ({ currentUse
   return (
     <div className="space-y-8">
         <div className="bg-white p-6 rounded-xl shadow-lg border-t-4 border-padel relative">
-        <h2 className="text-2xl font-bold mb-6 text-gray-800">📝 Inscrição Semanal</h2>
+        <h2 className="text-2xl font-bold mb-6 text-gray-800 flex items-baseline flex-wrap gap-2">
+            <span>📝 Inscrição Semanal</span>
+            <span className="text-sm font-medium text-gray-400 whitespace-nowrap">({appState.nextSundayDate})</span>
+        </h2>
         
         {successMsg && (
             <div className="mb-4 p-3 bg-green-100 text-green-800 rounded-lg flex items-center gap-2 animate-pulse">
