@@ -42,18 +42,18 @@ export const initCloudSync = async () => {
             supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
         }
         
-        console.log("⚡ Supabase Sync Initialized!");
+        console.log("⚡ Inicializando Sincronização Cloud...");
         
-        // Initial Fetch of all data to populate LocalStorage
+        // Fetch inicial forçado antes de ativar realtime
         await fetchAllData();
         
-        // Enable Realtime Subscriptions
+        // Ativar Realtime
         enableRealtimeSubscriptions();
         
         isConnected = true;
         notifyListeners(); 
     } catch (e) {
-        console.error("Supabase Init Error:", e);
+        console.error("Erro Supabase Init:", e);
         isConnected = false;
     }
 };
@@ -62,7 +62,6 @@ const fetchAllData = async () => {
     if (!supabase) return;
 
     try {
-        // Fetch All in Parallel
         const [playersRes, regsRes, matchesRes, messagesRes, settingsRes] = await Promise.all([
             supabase.from('players').select('*'),
             supabase.from('registrations').select('*'),
@@ -85,27 +84,26 @@ const fetchAllData = async () => {
         
         ensureAdminExists();
     } catch (err) {
-        console.error("Fetch All Data Error:", err);
+        console.error("Erro ao carregar dados Supabase:", err);
     }
 };
 
 const enableRealtimeSubscriptions = () => {
     if (!supabase) return;
 
-    // Remove existing channel if any
     supabase.removeAllChannels();
 
-    supabase.channel('public-db-changes')
+    supabase.channel('global-sync')
         .on(
             'postgres_changes',
             { event: '*', schema: 'public' },
             (payload) => {
-                console.log('Realtime Update Received:', payload.table, payload.eventType);
+                console.log('Evento Realtime:', payload.table, payload.eventType);
                 handleRealtimeUpdate(payload);
             }
         )
         .subscribe((status) => {
-            console.log("Supabase Realtime Channel Status:", status);
+            console.log("Estado Canal Realtime:", status);
         });
 };
 
@@ -113,7 +111,7 @@ const handleRealtimeUpdate = (payload: any) => {
     const { table, eventType, new: newRecord, old: oldRecord } = payload;
     const tableName = table.toLowerCase();
 
-    // 1. Settings Table (AppState & Masters)
+    // 1. Tratamento Especial para Configurações (AppState)
     if (tableName === 'settings') {
         const record = newRecord || oldRecord;
         if (!record) return;
@@ -121,13 +119,13 @@ const handleRealtimeUpdate = (payload: any) => {
         const storageKey = key === 'appState' ? KEYS.STATE : (key === 'masters' ? KEYS.MASTERS : null);
         if (storageKey && newRecord) {
             localStorage.setItem(storageKey, JSON.stringify(newRecord.value));
-            console.log(`AppState updated via Realtime: ${key}`);
+            console.log('AppState sincronizado!');
         }
         notifyListeners();
         return;
     }
 
-    // 2. Data Tables
+    // 2. Tabelas de Dados
     let storageKey = '';
     if (tableName === 'players') storageKey = KEYS.PLAYERS;
     else if (tableName === 'registrations') storageKey = KEYS.REGISTRATIONS;
@@ -147,7 +145,8 @@ const handleRealtimeUpdate = (payload: any) => {
         if (idx >= 0) {
             currentData[idx] = newRecord;
         } else {
-            currentData.push(newRecord); // Robustness: add if not present
+            // Se não existia localmente, adicionamos (Upsert robusto)
+            currentData.push(newRecord);
         }
     } else if (eventType === 'DELETE') {
         currentData = currentData.filter(item => item.id !== oldRecord.id);

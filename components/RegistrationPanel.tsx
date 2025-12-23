@@ -62,14 +62,15 @@ export const RegistrationPanel: React.FC<RegistrationPanelProps> = ({ currentUse
     const playersList = getPlayers();
     setAllPlayers(playersList.filter(p => p.id !== currentUser.id));
 
-    // Filter: All registrations for the current tournament date
+    // Filter: Todas as inscrições para a data atual para cálculo de vagas
     const regsForDate = allRegs.filter(r => r.date === currentState.nextSundayDate);
     setAllTournamentRegistrations(regsForDate);
 
-    // Filter: Current User registrations (As Player OR As Partner)
+    // Filter: Inscrições do utilizador logado (Como Jogador OU Como Parceiro)
+    // CRÍTICO: Verificar se o utilizador logado é parceiro numa inscrição de outrem
     const activeRegs = regsForDate.filter(r => r.playerId === currentUser.id || r.partnerId === currentUser.id);
 
-    // Show newest first
+    // Mostrar as mais recentes primeiro
     setMyRegistrations(activeRegs.reverse());
   };
 
@@ -87,7 +88,7 @@ export const RegistrationPanel: React.FC<RegistrationPanelProps> = ({ currentUse
     if (e) e.preventDefault();
     if (!selectedShift) return;
 
-    // 1. Check if CURRENT USER is already registered in this shift
+    // 1. Verificar se o utilizador já está inscrito neste turno
     const myConflict = allTournamentRegistrations.find(r => 
         r.shift === selectedShift && 
         (r.playerId === currentUser.id || r.partnerId === currentUser.id)
@@ -104,7 +105,7 @@ export const RegistrationPanel: React.FC<RegistrationPanelProps> = ({ currentUse
         return;
     }
 
-    // 2. Check Capacity
+    // 2. Verificar Capacidade
     if (!forceWaitingList) {
         const { remaining } = getShiftAvailability(selectedShift, regType);
         const needed = registerMode === 'partner' ? 2 : 1;
@@ -115,7 +116,7 @@ export const RegistrationPanel: React.FC<RegistrationPanelProps> = ({ currentUse
         }
     }
 
-    // 3. Check Partner Conflict
+    // 3. Verificar Conflito do Parceiro
     if (registerMode === 'partner' && selectedPartnerId) {
         const partnerConflict = allTournamentRegistrations.find(r => 
             r.shift === selectedShift && 
@@ -218,6 +219,8 @@ export const RegistrationPanel: React.FC<RegistrationPanelProps> = ({ currentUse
       if (!config) return { total: 0, used: 0, remaining: 0, percentage: 100 };
       const numCourts = config[type];
       const totalSlots = numCourts * 4;
+      
+      // Sincronizar contagem: Tratar nulo como 'game'
       const usedSlots = allTournamentRegistrations
           .filter(r => 
             r.shift === shift && 
@@ -225,6 +228,7 @@ export const RegistrationPanel: React.FC<RegistrationPanelProps> = ({ currentUse
             !r.isWaitingList
           )
           .reduce((acc, r) => acc + (r.hasPartner ? 2 : 1), 0);
+          
       const remaining = Math.max(0, totalSlots - usedSlots);
       const percentage = totalSlots > 0 ? (usedSlots / totalSlots) * 100 : 100;
       return { total: totalSlots, used: usedSlots, remaining, percentage };
@@ -292,6 +296,7 @@ export const RegistrationPanel: React.FC<RegistrationPanelProps> = ({ currentUse
                     const { remaining } = getShiftAvailability(r.shift, r.type || 'game');
                     const canPromote = isWaiting && remaining >= (r.hasPartner ? 2 : 1);
 
+                    // Determinar quem é o parceiro (independente de quem inscreveu quem)
                     const companionId = r.playerId === currentUser.id ? r.partnerId : r.playerId;
                     const companionData = getPlayers().find(p => p.id === companionId);
                     const companionName = r.playerId === currentUser.id ? (r.partnerName || '...') : (companionData?.name || 'Parceiro');
