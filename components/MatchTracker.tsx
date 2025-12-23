@@ -18,7 +18,7 @@ export const MatchTracker: React.FC<MatchTrackerProps> = ({ currentUser }) => {
   const [appState, setAppState] = useState<AppState>(getAppState());
   const [viewMode, setViewMode] = useState<'input' | 'history'>('input');
   const [availableShifts, setAvailableShifts] = useState<Shift[]>([]);
-  const [isSubstituteOnly, setIsSubstituteOnly] = useState(false); // New state to detect substitute status
+  const [isSubstituteOnly, setIsSubstituteOnly] = useState(false); 
   const [selectedShift, setSelectedShift] = useState<Shift | null>(null);
   const [selectedGame, setSelectedGame] = useState(1);
   const [selectedCourt, setSelectedCourt] = useState(1); 
@@ -41,21 +41,16 @@ export const MatchTracker: React.FC<MatchTrackerProps> = ({ currentUser }) => {
     setAppState(currentState);
     setAllPlayers(players);
 
-    // 1. Get all registrations for current user on the active date
     const myRegs = registrations.filter(r => 
       (r.playerId === currentUser.id || r.partnerId === currentUser.id) && 
       r.date === currentState.nextSundayDate && 
       (r.type === 'game' || !r.type)
     );
 
-    // 2. Filter only those that are NOT in the waiting list
     const confirmedRegs = myRegs.filter(r => !r.isWaitingList);
-    
-    // 3. Determine shifts available for result entry
     const uniqueConfirmedShifts = Array.from(new Set(confirmedRegs.map(r => r.shift)));
     setAvailableShifts(uniqueConfirmedShifts);
 
-    // 4. Check if the user is registered but ONLY as a substitute
     setIsSubstituteOnly(myRegs.length > 0 && confirmedRegs.length === 0);
 
     if (uniqueConfirmedShifts.length > 0) {
@@ -179,7 +174,31 @@ export const MatchTracker: React.FC<MatchTrackerProps> = ({ currentUser }) => {
           m.gameNumber === game
       );
 
+      // 1. Verificar se a MINHA equipa (eu ou parceiro) já submeteu
+      const myTeamMatch = existingMatches.find(m => m.playerIds.includes(currentUser.id));
+      if (myTeamMatch) {
+          const myReg = getRegistrations().find(r => 
+              (r.playerId === currentUser.id || r.partnerId === currentUser.id) && 
+              r.shift === shift && 
+              r.date === tournamentDate
+          );
+          
+          if (myReg?.hasPartner) {
+              return { 
+                  msg: "Resultado já submetido pelo parceiro ou parceira", 
+                  sub: "O teu parceiro ou parceira já inseriu o resultado (incluindo o Ponto de Ouro) para este jogo. Não é necessário submeter novamente." 
+              };
+          } else {
+              return { 
+                  msg: "Já registaste este resultado", 
+                  sub: "Já inseriste o resultado para este jogo e campo." 
+              };
+          }
+      }
+
+      // 2. Verificar conflito com a equipa ADVERSÁRIA
       for (const match of existingMatches) {
+          // Nota: Já garantimos acima que não somos nós, mas por segurança mantemos a verificação de exclusão
           if (match.playerIds.includes(currentUser.id)) continue;
 
           const teamNames = match.playerIds.map(pid => getPlayerName(pid)).join(' & ');
@@ -205,9 +224,6 @@ export const MatchTracker: React.FC<MatchTrackerProps> = ({ currentUser }) => {
               };
           }
       }
-      
-      const myMatch = existingMatches.find(m => m.playerIds.includes(currentUser.id));
-      if (myMatch) return { msg: "Já registaste um resultado para este Jogo e Campo.", sub: "Se te enganaste, pede a um administrador para corrigir." };
 
       return null;
   };
