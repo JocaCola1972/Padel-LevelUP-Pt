@@ -76,13 +76,13 @@ export const LevelUpInfo: React.FC = () => {
             </div>
 
             {/* Social / Branding */}
-            <div className="text-center pt-4 opacity-50 grayscale hover:grayscale-0 transition-all duration-700">
+            <div className="text-center pt-8 opacity-80 transition-all duration-700">
                 <div className="flex justify-center items-center gap-2 mb-2">
-                    <span className="h-px w-8 bg-gray-300"></span>
-                    <span className="text-[10px] font-black uppercase tracking-[0.3em] text-gray-400">LevelUp Padel League</span>
-                    <span className="h-px w-8 bg-gray-300"></span>
+                    <span className="h-px w-8 bg-white/30"></span>
+                    <span className="text-[10px] font-black uppercase tracking-[0.3em] text-white">Padel LevelUp</span>
+                    <span className="h-px w-8 bg-white/30"></span>
                 </div>
-                <p className="text-[10px] text-gray-400">Powered by Padel LevelUp Tech 2024</p>
+                <p className="text-[10px] text-white/70 font-medium">Powered by Padel LevelUp Amazing Team</p>
             </div>
         </div>
     );
