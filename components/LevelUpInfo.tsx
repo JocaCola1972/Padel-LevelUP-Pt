@@ -1,9 +1,10 @@
 
-import React from 'react';
+import React, { useState } from 'react';
 import { getAppState } from '../services/storageService';
 
 export const LevelUpInfo: React.FC = () => {
     const state = getAppState();
+    const [isExpanded, setIsExpanded] = useState(false);
 
     return (
         <div className="space-y-6 animate-fade-in pb-10">
@@ -62,79 +63,111 @@ export const LevelUpInfo: React.FC = () => {
                     </div>
                 </div>
 
-                {/* HISTÓRIA E COMPROMISSO - LONG TEXT */}
-                <div className="bg-white p-6 rounded-xl shadow-md border border-gray-100 flex flex-col gap-4">
-                    <div className="flex items-center gap-4">
-                        <div className="w-12 h-12 bg-yellow-50 rounded-lg flex items-center justify-center text-2xl flex-shrink-0 border border-yellow-100">
-                            ⭐
+                {/* HISTÓRIA E COMPROMISSO - COLLAPSIBLE CARD */}
+                <div className="bg-white rounded-xl shadow-md border border-gray-100 flex flex-col overflow-hidden transition-all duration-300">
+                    {/* Header/Trigger */}
+                    <div 
+                        className="p-6 pb-4 flex items-center justify-between cursor-pointer hover:bg-gray-50 transition-colors"
+                        onClick={() => setIsExpanded(!isExpanded)}
+                    >
+                        <div className="flex items-center gap-4">
+                            <div className="w-12 h-12 bg-yellow-50 rounded-lg flex items-center justify-center text-2xl flex-shrink-0 border border-yellow-100">
+                                ⭐
+                            </div>
+                            <h3 className="font-black text-gray-800 uppercase text-sm tracking-wide">LEVELUP – Muito mais do que Padel!</h3>
                         </div>
-                        <h3 className="font-black text-gray-800 uppercase text-sm tracking-wide">LEVELUP – Muito mais do que Padel!</h3>
+                        <div className={`text-xl text-gray-400 transition-transform duration-500 ${isExpanded ? 'rotate-180' : ''}`}>
+                            <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M19 9l-7 7-7-7" />
+                            </svg>
+                        </div>
                     </div>
                     
-                    <div className="text-xs text-gray-600 space-y-4 leading-relaxed text-justify">
-                        <p>
+                    {/* Content Body */}
+                    <div className="px-6 pb-6 text-xs text-gray-600 leading-relaxed text-justify">
+                        {/* Always Visible Part */}
+                        <p className="font-medium text-gray-700">
                             O LevelUP nasceu da vontade de duas pessoas com um objetivo simples: fazer bem e fazer melhor.
                         </p>
-                        <p>
-                            O que começou como uma brincadeira entre amigos transformou-se numa experiência única, feita de alegria, partilha e paixão pelo Padel.
-                            Falámos da nossa experiência, despertámos curiosidade e, num instante, estávamos a dar mini-aulas sobre “O que é isto do Padel?” e a ensinar como se joga. Não porque soubéssemos tudo, mas porque o entusiasmo era contagiante. Assim, nasceu uma legião de fantásticos seguidores.
-                        </p>
-                        <p>
-                            Em 10 de dezembro de 2017, criámos o grupo LevelUP – um espaço para quem gosta e para quem quer gostar deste desporto.
-                            “LevelUP” significa subir de nível, aumentar tudo o que é bom no Padel. É isso que fazemos: crescer juntos, com saúde, amizade e diversão.
-                        </p>
 
-                        <div className="bg-padel/5 border-l-4 border-padel p-4 rounded-r-lg my-6">
-                            <p className="text-sm font-black text-padel-dark italic text-center italic tracking-tight">
-                                “Entra com vontade de aprender e fica com vontade de ensinar.”
-                            </p>
-                        </div>
+                        {/* Collapsible Wrapper */}
+                        <div className={`grid transition-all duration-500 ease-in-out ${isExpanded ? 'grid-rows-[1fr] opacity-100 mt-4' : 'grid-rows-[0fr] opacity-0'}`}>
+                            <div className="overflow-hidden space-y-4">
+                                <p>
+                                    O que começou como uma brincadeira entre amigos transformou-se numa experiência única, feita de alegria, partilha e paixão pelo Padel.
+                                    Falámos da nossa experiência, despertámos curiosidade e, num instante, estávamos a dar mini-aulas sobre “O que é isto do Padel?” e a ensinar como se joga. Não porque soubéssemos tudo, mas porque o entusiasmo era contagiante. Assim, nasceu uma legião de fantásticos seguidores.
+                                </p>
+                                <p>
+                                    Em 10 de dezembro de 2017, criámos o grupo LevelUP – um espaço para quem gosta e para quem quer gostar deste desporto.
+                                    “LevelUP” significa subir de nível, aumentar tudo o que é bom no Padel. É isso que fazemos: crescer juntos, com saúde, amizade e diversão.
+                                </p>
 
-                        <p>
-                            Sobrevivemos a uma pandemia, mantivemos a comunidade ativa online, promovemos exercício em casa e continuámos unidos. Hoje, somos responsáveis por tirar centenas de pessoas do sedentarismo, criar amizades, parcerias e uma verdadeira rede saudável.
-                        </p>
+                                <div className="bg-padel/5 border-l-4 border-padel p-4 rounded-r-lg my-6">
+                                    <p className="text-sm font-black text-padel-dark italic text-center italic tracking-tight">
+                                        “Entra com vontade de aprender e fica com vontade de ensinar.”
+                                    </p>
+                                </div>
 
-                        <div className="bg-gray-50 p-4 rounded-xl space-y-2 border border-gray-100">
-                            <p className="font-bold text-gray-700 mb-2 uppercase tracking-tighter text-[10px]">Mas não ficamos por aqui:</p>
-                            <ul className="space-y-1.5 ml-1">
-                                <li className="flex items-center gap-2 font-medium">
-                                    <span className="text-padel">✔</span> Formação para todos os níveis
-                                </li>
-                                <li className="flex items-center gap-2 font-medium">
-                                    <span className="text-padel">✔</span> Jogos adaptados e competições sazonais
-                                </li>
-                                <li className="flex items-center gap-2 font-medium">
-                                    <span className="text-padel">✔</span> Almoços, jantares e dias especiais
-                                </li>
-                                <li className="flex items-center gap-2 font-medium">
-                                    <span className="text-padel">✔</span> Até recriamos “derbys” nos dias dos derbys!
-                                </li>
-                            </ul>
-                        </div>
+                                <p>
+                                    Sobrevivemos a uma pandemia, mantivemos a comunidade ativa online, promovemos exercício em casa e continuámos unidos. Hoje, somos responsáveis por tirar centenas de pessoas do sedentarismo, criar amizades, parcerias e uma verdadeira rede saudável.
+                                </p>
 
-                        <p>
-                            E todos os domingos, 9 campos cheios, 108 jogadores a dar o seu melhor.
-                            O LevelUP começou com dois, mas hoje é mantido por todos. Somos uma experiência completa de Padel, que vai de A a Z.
-                        </p>
-                        
-                        <div className="pt-2 border-t border-gray-100">
-                            <p className="font-bold text-padel-dark uppercase text-[10px] mb-2 tracking-widest">Além do desporto, fazemos o bem fora de campo:</p>
-                            <p>
-                                A nossa marca está em salas de aula equipadas e em refeições para crianças carenciadas noutros pontos do mundo. Porque acreditamos que o desporto é também solidariedade.
-                            </p>
-                        </div>
+                                <div className="bg-gray-50 p-4 rounded-xl space-y-2 border border-gray-100">
+                                    <p className="font-bold text-gray-700 mb-2 uppercase tracking-tighter text-[10px]">Mas não ficamos por aqui:</p>
+                                    <ul className="space-y-1.5 ml-1">
+                                        <li className="flex items-center gap-2 font-medium">
+                                            <span className="text-padel">✔</span> Formação para todos os níveis
+                                        </li>
+                                        <li className="flex items-center gap-2 font-medium">
+                                            <span className="text-padel">✔</span> Jogos adaptados e competições sazonais
+                                        </li>
+                                        <li className="flex items-center gap-2 font-medium">
+                                            <span className="text-padel">✔</span> Almoços, jantares e dias especiais
+                                        </li>
+                                        <li className="flex items-center gap-2 font-medium">
+                                            <span className="text-padel">✔</span> Até recriamos “derbys” nos dias dos derbys!
+                                        </li>
+                                    </ul>
+                                </div>
 
-                        <p className="font-bold">
-                            Não queremos ser “Os Maiores”, mas somos “Os Melhores” – porque cada pessoa que entra neste grupo faz dele algo único.
-                        </p>
+                                <p>
+                                    E todos os domingos, 9 campos cheios, 108 jogadores a dar o seu melhor.
+                                    O LevelUP começou com dois, mas hoje é mantido por todos. Somos uma experiência completa de Padel, que vai de A a Z.
+                                </p>
+                                
+                                <div className="pt-2 border-t border-gray-100">
+                                    <p className="font-bold text-padel-dark uppercase text-[10px] mb-2 tracking-widest">Além do desporto, fazemos o bem fora de campo:</p>
+                                    <p>
+                                        A nossa marca está em salas de aula equipadas e em refeições para crianças carenciadas noutros pontos do mundo. Porque acreditamos que o desporto é também solidariedade.
+                                    </p>
+                                </div>
 
-                        <div className="pt-4 text-center">
-                            <p className="text-sm font-black italic text-gray-800">Sejam bem-vindos ao LevelUP.</p>
-                            <p className="text-xs text-gray-500 font-bold mt-1">Entramos com vontade de aprender e ficamos com vontade de ensinar.</p>
-                            <div className="mt-4 flex flex-col items-center">
-                                <div className="h-px w-12 bg-padel mb-2 opacity-30"></div>
-                                <p className="font-black text-padel-dark text-lg italic transform -skew-x-6 tracking-tighter">Elsa e Joca</p>
+                                <p className="font-bold">
+                                    Não queremos ser “Os Maiores”, mas somos “Os Melhores” – porque cada pessoa que entra neste grupo faz dele algo único.
+                                </p>
+
+                                <div className="pt-4 text-center">
+                                    <p className="text-sm font-black italic text-gray-800">Sejam bem-vindos ao LevelUP.</p>
+                                    <p className="text-xs text-gray-500 font-bold mt-1">Entramos com vontade de aprender e ficamos com vontade de ensinar.</p>
+                                    <div className="mt-4 flex flex-col items-center">
+                                        <div className="h-px w-12 bg-padel mb-2 opacity-30"></div>
+                                        <p className="font-black text-padel-dark text-lg italic transform -skew-x-6 tracking-tighter">Elsa e Joca</p>
+                                    </div>
+                                </div>
                             </div>
+                        </div>
+                        
+                        {/* Expand/Collapse Label */}
+                        <div 
+                            className="mt-4 pt-2 border-t border-gray-50 text-center cursor-pointer group"
+                            onClick={(e) => {
+                                e.stopPropagation();
+                                setIsExpanded(!isExpanded);
+                            }}
+                        >
+                            <span className="text-[10px] font-black uppercase tracking-widest text-padel hover:text-padel-dark transition-colors">
+                                {isExpanded ? 'Ler menos ↑' : 'Ler história completa ↓'}
+                            </span>
                         </div>
                     </div>
                 </div>

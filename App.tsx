@@ -354,18 +354,18 @@ const App: React.FC = () => {
           )}
           {isAnyAdmin && (
             <NavButton 
-              active={activeTab === Tab.TOOLS} 
-              onClick={() => setActiveTab(Tab.TOOLS)}
-              icon="🛠️"
-              label="Tools"
-            />
-          )}
-          {isAnyAdmin && (
-            <NavButton 
               active={activeTab === Tab.ADMIN} 
               onClick={() => setActiveTab(Tab.ADMIN)}
               icon="⚙️"
               label="Admin"
+            />
+          )}
+          {isAnyAdmin && (
+            <NavButton 
+              active={activeTab === Tab.TOOLS} 
+              onClick={() => setActiveTab(Tab.TOOLS)}
+              icon="🛠️"
+              label="Tools"
             />
           )}
         </div>
