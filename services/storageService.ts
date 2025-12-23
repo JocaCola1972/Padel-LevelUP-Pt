@@ -42,18 +42,18 @@ export const initCloudSync = async () => {
             supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
         }
         
-        console.log("⚡ Inicializando Sincronização Cloud...");
+        console.log("⚡ Iniciando Sincronização em Tempo Real...");
         
-        // Fetch inicial forçado antes de ativar realtime
+        // 1. Fetch inicial de dados para garantir base fresca
         await fetchAllData();
         
-        // Ativar Realtime
+        // 2. Ativar Subscrições Realtime em todas as tabelas
         enableRealtimeSubscriptions();
         
         isConnected = true;
         notifyListeners(); 
     } catch (e) {
-        console.error("Erro Supabase Init:", e);
+        console.error("Erro no Sync Supabase:", e);
         isConnected = false;
     }
 };
@@ -84,26 +84,28 @@ const fetchAllData = async () => {
         
         ensureAdminExists();
     } catch (err) {
-        console.error("Erro ao carregar dados Supabase:", err);
+        console.error("Erro no Fetch Inicial:", err);
     }
 };
 
 const enableRealtimeSubscriptions = () => {
     if (!supabase) return;
 
+    // Remove canais antigos para evitar duplicados
     supabase.removeAllChannels();
 
-    supabase.channel('global-sync')
+    // Subscreve a todas as tabelas públicas
+    supabase.channel('system-wide-sync')
         .on(
             'postgres_changes',
             { event: '*', schema: 'public' },
             (payload) => {
-                console.log('Evento Realtime:', payload.table, payload.eventType);
+                console.log('Dados recebidos da Nuvem:', payload.table, payload.eventType);
                 handleRealtimeUpdate(payload);
             }
         )
         .subscribe((status) => {
-            console.log("Estado Canal Realtime:", status);
+            console.log("Estado da Ligação em Tempo Real:", status);
         });
 };
 
@@ -111,7 +113,7 @@ const handleRealtimeUpdate = (payload: any) => {
     const { table, eventType, new: newRecord, old: oldRecord } = payload;
     const tableName = table.toLowerCase();
 
-    // 1. Tratamento Especial para Configurações (AppState)
+    // 1. Sincronização de Configurações e Estado da App
     if (tableName === 'settings') {
         const record = newRecord || oldRecord;
         if (!record) return;
@@ -119,13 +121,13 @@ const handleRealtimeUpdate = (payload: any) => {
         const storageKey = key === 'appState' ? KEYS.STATE : (key === 'masters' ? KEYS.MASTERS : null);
         if (storageKey && newRecord) {
             localStorage.setItem(storageKey, JSON.stringify(newRecord.value));
-            console.log('AppState sincronizado!');
+            console.log(`Estado [${key}] atualizado globalmente.`);
         }
         notifyListeners();
         return;
     }
 
-    // 2. Tabelas de Dados
+    // 2. Sincronização de Tabelas de Dados
     let storageKey = '';
     if (tableName === 'players') storageKey = KEYS.PLAYERS;
     else if (tableName === 'registrations') storageKey = KEYS.REGISTRATIONS;
@@ -145,7 +147,7 @@ const handleRealtimeUpdate = (payload: any) => {
         if (idx >= 0) {
             currentData[idx] = newRecord;
         } else {
-            // Se não existia localmente, adicionamos (Upsert robusto)
+            // Caso o update chegue mas não tínhamos o registo (gap de rede), inserimos
             currentData.push(newRecord);
         }
     } else if (eventType === 'DELETE') {
@@ -153,7 +155,7 @@ const handleRealtimeUpdate = (payload: any) => {
     }
 
     localStorage.setItem(storageKey, JSON.stringify(currentData));
-    notifyListeners(); 
+    notifyListeners(); // Notifica UI imediatamente
 };
 
 // Utility for ID generation
