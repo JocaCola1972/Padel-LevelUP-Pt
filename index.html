@@ -45,9 +45,8 @@
     </script>
     <style>
       body {
-        background-color: #f8fafc;
-        background-image: radial-gradient(#e2e8f0 1px, transparent 1px);
-        background-size: 20px 20px;
+        background-color: #000000; /* Fundo base preto para evitar flash branco */
+        margin: 0;
       }
       #root {
         min-height: 100vh;
@@ -62,19 +61,27 @@
       .pb-safe {
           padding-bottom: env(safe-area-inset-bottom);
       }
-      /* Fundo Preto para o ecrã de login solicitado */
+      
+      /* Fundo da Autenticação - Edite aqui as cores do gradiente */
       .auth-bg {
-          background: #000000;
+          /* Gradiente de baixo (escuro) para cima (claro) */
+          background: linear-gradient(to top, #000000 0%, #1f2937 50%, #4b5563 100%);
           position: fixed;
           inset: 0;
-          z-index: -1;
+          z-index: -2;
       }
-      /* Overlay removido ou tornado transparente para garantir o preto puro */
+      
+      /* Overlay de textura/imagem - Opacidade baixa para não esconder o gradiente */
       .auth-overlay {
           position: fixed;
           inset: 0;
           z-index: -1;
-          background: transparent;
+          background-image: url('https://img.freepik.com/free-vector/silhouette-padel-player-background_23-2150068894.jpg');
+          background-size: cover;
+          background-position: center;
+          opacity: 0.05; /* Reduzido para 5% para deixar as cores brilharem */
+          mix-blend-mode: lighten;
+          pointer-events: none;
       }
     </style>
     <!-- SheetJS for Excel Import -->

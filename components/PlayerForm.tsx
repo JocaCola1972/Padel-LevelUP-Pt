@@ -132,7 +132,7 @@ export const PlayerForm: React.FC<PlayerFormProps> = ({ initialMode, onLogin, on
       <div className="auth-bg"></div>
       <div className="auth-overlay"></div>
       
-      <div className="bg-white/95 backdrop-blur-md p-8 rounded-2xl shadow-2xl w-full max-w-md border border-white/40 relative">
+      <div className="bg-white/95 backdrop-blur-md p-8 rounded-2xl shadow-2xl w-full max-w-md border border-white/20 relative">
         <button 
             onClick={() => {
                 if (requirePassword) resetLogin();
@@ -161,12 +161,12 @@ export const PlayerForm: React.FC<PlayerFormProps> = ({ initialMode, onLogin, on
           <form onSubmit={handleLoginSubmit} className="space-y-4">
             {!requirePassword ? (
                 <div>
-                    <label className="block text-[10px] font-black text-gray-400 uppercase mb-1 ml-1">Utilizador ou Telemóvel</label>
+                    <label className="block text-[10px] font-black text-gray-500 uppercase mb-1 ml-1">Utilizador ou Telemóvel</label>
                     <input
                         type="text"
                         value={phone}
                         onChange={(e) => setPhone(e.target.value)}
-                        className="w-full p-4 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-padel focus:border-transparent outline-none transition-all font-mono text-lg"
+                        className="w-full p-4 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-padel focus:border-transparent outline-none transition-all font-mono text-lg text-gray-900 placeholder-gray-300"
                         placeholder="Ex: 912345678"
                         autoFocus
                         required
@@ -174,18 +174,18 @@ export const PlayerForm: React.FC<PlayerFormProps> = ({ initialMode, onLogin, on
                 </div>
             ) : (
                 <div className="animate-slide-down">
-                    <label className="block text-[10px] font-black text-gray-400 uppercase mb-1 ml-1">Password</label>
+                    <label className="block text-[10px] font-black text-gray-500 uppercase mb-1 ml-1">Password</label>
                     <input
                         type="password"
                         value={password}
                         onChange={(e) => setPassword(e.target.value)}
-                        className="w-full p-4 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-padel focus:border-transparent outline-none transition-all text-lg"
+                        className="w-full p-4 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-padel focus:border-transparent outline-none transition-all text-lg text-gray-900 placeholder-gray-300"
                         placeholder="••••••••"
                         autoFocus
                         required
                     />
                     <div className="mt-2 text-right">
-                        <button type="button" onClick={resetLogin} className="text-[10px] text-blue-500 hover:underline font-bold uppercase">
+                        <button type="button" onClick={resetLogin} className="text-[10px] text-padel font-bold uppercase hover:underline">
                             Não sou o {tempPlayer?.name}?
                         </button>
                     </div>
@@ -202,7 +202,7 @@ export const PlayerForm: React.FC<PlayerFormProps> = ({ initialMode, onLogin, on
             {!requirePassword && (
                 <div className="space-y-3 text-center mt-6">
                     <p className="text-xs text-gray-500">
-                        Ainda não tens ficha? <button type="button" onClick={() => switchMode('register')} className="text-padel-dark font-black hover:underline uppercase">Criar Agora</button>
+                        Ainda não tens ficha? <button type="button" onClick={() => switchMode('register')} className="text-padel font-black hover:underline uppercase">Criar Agora</button>
                     </p>
                     <button type="button" onClick={() => switchMode('recover')} className="text-[10px] text-gray-400 hover:text-padel font-bold uppercase tracking-tighter">
                         Esqueci-me da Password
@@ -215,23 +215,23 @@ export const PlayerForm: React.FC<PlayerFormProps> = ({ initialMode, onLogin, on
         {mode === 'register' && (
           <form onSubmit={handleRegisterSubmit} className="space-y-4">
             <div>
-              <label className="block text-[10px] font-black text-gray-400 uppercase mb-1 ml-1">Nome Completo</label>
+              <label className="block text-[10px] font-black text-gray-500 uppercase mb-1 ml-1">Nome Completo</label>
               <input
                 type="text"
                 value={newName}
                 onChange={(e) => setNewName(e.target.value)}
-                className="w-full p-4 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-padel outline-none transition-all"
+                className="w-full p-4 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-padel outline-none transition-all text-gray-900 placeholder-gray-300"
                 placeholder="Ex: João Silva"
                 required
               />
             </div>
             <div>
-              <label className="block text-[10px] font-black text-gray-400 uppercase mb-1 ml-1">Telemóvel</label>
+              <label className="block text-[10px] font-black text-gray-500 uppercase mb-1 ml-1">Telemóvel</label>
               <input
                 type="tel"
                 value={phone}
                 onChange={(e) => setPhone(e.target.value)}
-                className="w-full p-4 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-padel outline-none transition-all font-mono text-lg"
+                className="w-full p-4 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-padel outline-none transition-all font-mono text-lg text-gray-900 placeholder-gray-300"
                 placeholder="912345678"
                 required
               />
@@ -242,24 +242,24 @@ export const PlayerForm: React.FC<PlayerFormProps> = ({ initialMode, onLogin, on
             <Button type="submit" className="w-full py-4 text-lg font-black italic">CRIAR FICHA</Button>
             
             <p className="text-center text-xs text-gray-500 mt-6">
-              Já tens conta? <button type="button" onClick={() => switchMode('login')} className="text-padel-dark font-black hover:underline uppercase">Fazer Login</button>
+              Já tens conta? <button type="button" onClick={() => switchMode('login')} className="text-padel font-black hover:underline uppercase">Fazer Login</button>
             </p>
           </form>
         )}
 
         {mode === 'recover' && (
             <form onSubmit={handleRecoverSubmit} className="space-y-4">
-                <div className="text-center p-3 bg-blue-50 text-blue-800 text-[11px] font-medium rounded-lg mb-4 border border-blue-100">
+                <div className="text-center p-3 bg-blue-50 text-blue-700 text-[11px] font-medium rounded-lg mb-4 border border-blue-100">
                     Insere o teu telemóvel para pedir um reset de password ao administrador.
                 </div>
 
                 <div>
-                    <label className="block text-[10px] font-black text-gray-400 uppercase mb-1 ml-1">Telemóvel</label>
+                    <label className="block text-[10px] font-black text-gray-500 uppercase mb-1 ml-1">Telemóvel</label>
                     <input
                         type="tel"
                         value={phone}
                         onChange={(e) => setPhone(e.target.value)}
-                        className="w-full p-4 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-padel outline-none transition-all font-mono text-lg"
+                        className="w-full p-4 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-padel outline-none transition-all font-mono text-lg text-gray-900 placeholder-gray-300"
                         placeholder="912345678"
                         required
                     />
@@ -273,7 +273,7 @@ export const PlayerForm: React.FC<PlayerFormProps> = ({ initialMode, onLogin, on
                 </Button>
 
                 <p className="text-center text-xs text-gray-500 mt-6">
-                    <button type="button" onClick={() => switchMode('login')} className="text-padel-dark font-black hover:underline uppercase">Voltar</button>
+                    <button type="button" onClick={() => switchMode('login')} className="text-padel font-black hover:underline uppercase">Voltar</button>
                 </p>
             </form>
         )}
