@@ -45,8 +45,11 @@
     </script>
     <style>
       body {
-        background-color: #000000; /* Fundo base preto para evitar flash branco */
+        /* Gradiente global de baixo (escuro) para cima (claro) */
+        background: linear-gradient(to top, #111827 0%, #374151 50%, #9ca3af 100%);
+        background-attachment: fixed;
         margin: 0;
+        min-height: 100vh;
       }
       #root {
         min-height: 100vh;
@@ -62,16 +65,14 @@
           padding-bottom: env(safe-area-inset-bottom);
       }
       
-      /* Fundo da Autenticação - Edite aqui as cores do gradiente */
+      /* Placeholder para compatibilidade nos componentes */
       .auth-bg {
-          /* Gradiente de baixo (escuro) para cima (claro) */
-          background: linear-gradient(to top, #000000 0%, #1f2937 50%, #4b5563 100%);
           position: fixed;
           inset: 0;
           z-index: -2;
       }
       
-      /* Overlay de textura/imagem - Opacidade baixa para não esconder o gradiente */
+      /* Overlay de textura/imagem - Opacidade muito baixa */
       .auth-overlay {
           position: fixed;
           inset: 0;
@@ -79,8 +80,8 @@
           background-image: url('https://img.freepik.com/free-vector/silhouette-padel-player-background_23-2150068894.jpg');
           background-size: cover;
           background-position: center;
-          opacity: 0.05; /* Reduzido para 5% para deixar as cores brilharem */
-          mix-blend-mode: lighten;
+          opacity: 0.03;
+          mix-blend-mode: overlay;
           pointer-events: none;
       }
     </style>
