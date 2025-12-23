@@ -42,7 +42,7 @@ export const initCloudSync = async () => {
             supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
         }
         
-        console.log("⚡ Supabase initialized! Fetching initial data...");
+        console.log("⚡ Supabase Sync Initialized!");
         
         // Initial Fetch of all data to populate LocalStorage
         await fetchAllData();
@@ -61,47 +61,51 @@ export const initCloudSync = async () => {
 const fetchAllData = async () => {
     if (!supabase) return;
 
-    // 1. Players
-    const { data: players } = await supabase.from('players').select('*');
-    if (players) localStorage.setItem(KEYS.PLAYERS, JSON.stringify(players));
+    try {
+        // Fetch All in Parallel
+        const [playersRes, regsRes, matchesRes, messagesRes, settingsRes] = await Promise.all([
+            supabase.from('players').select('*'),
+            supabase.from('registrations').select('*'),
+            supabase.from('matches').select('*'),
+            supabase.from('messages').select('*'),
+            supabase.from('settings').select('*')
+        ]);
 
-    // 2. Registrations
-    const { data: regs } = await supabase.from('registrations').select('*');
-    if (regs) localStorage.setItem(KEYS.REGISTRATIONS, JSON.stringify(regs));
-
-    // 3. Matches
-    const { data: matches } = await supabase.from('matches').select('*');
-    if (matches) localStorage.setItem(KEYS.MATCHES, JSON.stringify(matches));
-
-    // 4. Messages
-    const { data: messages } = await supabase.from('messages').select('*');
-    if (messages) localStorage.setItem(KEYS.MESSAGES, JSON.stringify(messages));
-
-    // 5. Settings (App State & Masters)
-    const { data: settings } = await supabase.from('settings').select('*');
-    if (settings) {
-        settings.forEach((row: any) => {
-            if (row.key === 'appState') localStorage.setItem(KEYS.STATE, JSON.stringify(row.value));
-            if (row.key === 'masters') localStorage.setItem(KEYS.MASTERS, JSON.stringify(row.value));
-        });
+        if (playersRes.data) localStorage.setItem(KEYS.PLAYERS, JSON.stringify(playersRes.data));
+        if (regsRes.data) localStorage.setItem(KEYS.REGISTRATIONS, JSON.stringify(regsRes.data));
+        if (matchesRes.data) localStorage.setItem(KEYS.MATCHES, JSON.stringify(matchesRes.data));
+        if (messagesRes.data) localStorage.setItem(KEYS.MESSAGES, JSON.stringify(messagesRes.data));
+        
+        if (settingsRes.data) {
+            settingsRes.data.forEach((row: any) => {
+                if (row.key === 'appState') localStorage.setItem(KEYS.STATE, JSON.stringify(row.value));
+                if (row.key === 'masters') localStorage.setItem(KEYS.MASTERS, JSON.stringify(row.value));
+            });
+        }
+        
+        ensureAdminExists();
+    } catch (err) {
+        console.error("Fetch All Data Error:", err);
     }
-    
-    ensureAdminExists();
 };
 
 const enableRealtimeSubscriptions = () => {
     if (!supabase) return;
 
-    supabase.channel('db-changes')
+    // Remove existing channel if any
+    supabase.removeAllChannels();
+
+    supabase.channel('public-db-changes')
         .on(
             'postgres_changes',
             { event: '*', schema: 'public' },
             (payload) => {
+                console.log('Realtime Update Received:', payload.table, payload.eventType);
                 handleRealtimeUpdate(payload);
             }
         )
         .subscribe((status) => {
-            console.log("Supabase Realtime Status:", status);
+            console.log("Supabase Realtime Channel Status:", status);
         });
 };
 
@@ -109,7 +113,7 @@ const handleRealtimeUpdate = (payload: any) => {
     const { table, eventType, new: newRecord, old: oldRecord } = payload;
     const tableName = table.toLowerCase();
 
-    // Especial handling for settings table
+    // 1. Settings Table (AppState & Masters)
     if (tableName === 'settings') {
         const record = newRecord || oldRecord;
         if (!record) return;
@@ -117,11 +121,13 @@ const handleRealtimeUpdate = (payload: any) => {
         const storageKey = key === 'appState' ? KEYS.STATE : (key === 'masters' ? KEYS.MASTERS : null);
         if (storageKey && newRecord) {
             localStorage.setItem(storageKey, JSON.stringify(newRecord.value));
+            console.log(`AppState updated via Realtime: ${key}`);
         }
         notifyListeners();
         return;
     }
 
+    // 2. Data Tables
     let storageKey = '';
     if (tableName === 'players') storageKey = KEYS.PLAYERS;
     else if (tableName === 'registrations') storageKey = KEYS.REGISTRATIONS;
@@ -141,7 +147,7 @@ const handleRealtimeUpdate = (payload: any) => {
         if (idx >= 0) {
             currentData[idx] = newRecord;
         } else {
-            currentData.push(newRecord);
+            currentData.push(newRecord); // Robustness: add if not present
         }
     } else if (eventType === 'DELETE') {
         currentData = currentData.filter(item => item.id !== oldRecord.id);
