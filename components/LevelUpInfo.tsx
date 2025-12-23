@@ -57,7 +57,7 @@ export const LevelUpInfo: React.FC = () => {
                     <div>
                         <h3 className="font-bold text-gray-800 mb-1 uppercase text-sm tracking-wide">Comunidade e Convívio</h3>
                         <p className="text-xs text-gray-500 leading-relaxed">
-                            Mais do que um torneio, o LevelUP é o ponto de encontro dos Earlybirds e do Breakfast Club. Padel com amigos e novas parcerias.
+                            Mais do que um torneio ou um “Mix” o LevelUP é o ponto de encontro de amigos e novas parcerias.
                         </p>
                     </div>
                 </div>
