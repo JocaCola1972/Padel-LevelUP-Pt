@@ -28,69 +28,146 @@ export const InscritosList: React.FC = () => {
   const getPlayer = (id: string) => players.find(p => p.id === id);
   const shifts = Object.values(Shift);
 
+  const getShiftCapacity = (shift: Shift) => {
+    const config = appState.courtConfig[shift];
+    if (!config) return 0;
+    // Cada campo de jogo tem 4 vagas. Treinos não contam para esta visualização de "ranking de jogo" 
+    // ou podem ser mostrados à parte, mas vamos focar na ocupação total.
+    return (config.game + config.training) * 4;
+  };
+
+  const getShiftOccupancy = (shift: Shift) => {
+    return activeRegistrations
+      .filter(r => r.shift === shift && !r.isWaitingList)
+      .reduce((acc, r) => acc + (r.hasPartner ? 2 : 1), 0);
+  };
+
   return (
-    <div className="space-y-6 pb-10">
-      <div className="bg-white/95 backdrop-blur-sm p-4 rounded-xl shadow-sm border-l-4 border-padel">
-        <h2 className="text-xl font-bold text-gray-800">📋 Inscritos Confirmados</h2>
-        <p className="text-sm text-gray-500">Para o dia: <span className="font-mono font-bold text-padel-dark">{appState.nextSundayDate}</span></p>
+    <div className="space-y-6 pb-16 animate-fade-in">
+      <div className="bg-white/95 backdrop-blur-sm p-6 rounded-2xl shadow-lg border-l-8 border-padel flex justify-between items-center">
+        <div>
+          <h2 className="text-2xl font-black text-gray-800 italic transform -skew-x-6">
+            LISTA DE <span className="text-padel">INSCRITOS</span>
+          </h2>
+          <p className="text-sm text-gray-500 font-bold uppercase tracking-widest mt-1">
+            Domingo, {appState.nextSundayDate}
+          </p>
+        </div>
+        <div className="text-right">
+            <span className="block text-[10px] font-black text-gray-400 uppercase">Total Geral</span>
+            <span className="text-2xl font-black text-padel-blue">
+                {activeRegistrations.filter(r => !r.isWaitingList).reduce((acc, r) => acc + (r.hasPartner ? 2 : 1), 0)}
+            </span>
+        </div>
       </div>
 
-      {shifts.map(shift => {
-        const shiftRegs = activeRegistrations.filter(r => r.shift === shift);
-        if (shiftRegs.length === 0) return null;
+      <div className="space-y-8">
+        {shifts.map(shift => {
+          const shiftRegs = activeRegistrations.filter(r => r.shift === shift);
+          const capacity = getShiftCapacity(shift);
+          const occupied = getShiftOccupancy(shift);
+          
+          const confirmed = shiftRegs.filter(r => !r.isWaitingList)
+              .map(reg => ({ reg, player: getPlayer(reg.playerId) }))
+              .sort((a, b) => (b.player?.totalPoints || 0) - (a.player?.totalPoints || 0));
 
-        const confirmed = shiftRegs.filter(r => !r.isWaitingList)
-            .map(reg => ({ reg, player: getPlayer(reg.playerId) }))
-            .sort((a, b) => (b.player?.totalPoints || 0) - (a.player?.totalPoints || 0));
+          const waiting = shiftRegs.filter(r => r.isWaitingList)
+              .map(reg => ({ reg, player: getPlayer(reg.playerId) }));
 
-        const waiting = shiftRegs.filter(r => r.isWaitingList)
-            .map(reg => ({ reg, player: getPlayer(reg.playerId) }));
-
-        return (
-            <div key={shift} className="bg-white/95 backdrop-blur-sm rounded-xl shadow overflow-hidden">
-                <div className="bg-padel-blue text-white p-3 flex justify-between items-center">
-                    <h3 className="font-bold">{shift}</h3>
-                    <span className="text-xs bg-white/20 px-2 py-1 rounded-full">{confirmed.length} Inscritos</span>
-                </div>
-                
-                <div className="divide-y divide-gray-100">
-                    {confirmed.map((item, idx) => (
-                        <div key={item.reg.id} className="p-3 flex items-center justify-between hover:bg-gray-50">
-                            <div className="flex items-center gap-3">
-                                <div className="w-8 h-8 rounded-full bg-padel text-white text-[10px] flex items-center justify-center font-bold">
-                                    {idx + 1}
-                                </div>
-                                <div>
-                                    <div className="font-semibold text-gray-800 flex items-center gap-2">
-                                        {item.player?.name || '...'}
-                                        {item.reg.type === 'training' && <span className="text-[9px] bg-orange-100 text-orange-700 px-1 rounded font-bold">AULA</span>}
-                                    </div>
-                                    <div className="text-[10px] text-gray-500">{item.reg.hasPartner ? `Dupla: ${item.reg.partnerName}` : 'Individual'}</div>
-                                </div>
+          return (
+              <div key={shift} className="bg-white/90 backdrop-blur-md rounded-2xl shadow-xl overflow-hidden border border-white/20">
+                  <div className="bg-gray-800 text-white p-4 flex justify-between items-center">
+                      <div>
+                        <h3 className="font-black italic text-lg tracking-tight uppercase">{shift}</h3>
+                        <div className="flex items-center gap-2 mt-1">
+                            <div className="w-24 h-1.5 bg-gray-600 rounded-full overflow-hidden">
+                                <div 
+                                    className={`h-full transition-all duration-1000 ${occupied >= capacity ? 'bg-red-500' : 'bg-padel'}`}
+                                    style={{ width: `${Math.min((occupied/capacity)*100, 100)}%` }}
+                                ></div>
                             </div>
-                            <div className="text-right font-bold text-padel-dark">{item.player?.totalPoints || 0} pts</div>
+                            <span className="text-[10px] font-bold text-gray-400 uppercase">{occupied} / {capacity} Vagas</span>
                         </div>
-                    ))}
-                </div>
+                      </div>
+                      <div className="text-right">
+                        <span className={`px-3 py-1 rounded-full text-[10px] font-black uppercase ${occupied >= capacity ? 'bg-red-500/20 text-red-400 border border-red-500/30' : 'bg-padel/20 text-padel-light border border-padel/30'}`}>
+                            {occupied >= capacity ? 'Esgotado' : 'Disponível'}
+                        </span>
+                      </div>
+                  </div>
+                  
+                  <div className="divide-y divide-gray-100">
+                      {confirmed.length > 0 ? (
+                          confirmed.map((item, idx) => (
+                              <div key={item.reg.id} className="p-4 flex items-center justify-between hover:bg-gray-50/50 transition-colors">
+                                  <div className="flex items-center gap-4">
+                                      <div className="w-8 h-8 rounded-full bg-padel-blue text-white text-[10px] flex items-center justify-center font-black italic shadow-sm">
+                                          {idx + 1}º
+                                      </div>
+                                      <div>
+                                          <div className="font-black text-gray-800 flex items-center gap-2">
+                                              {item.player?.name || 'Jogador...'}
+                                              {item.reg.type === 'training' && (
+                                                <span className="text-[8px] bg-orange-500 text-white px-1.5 py-0.5 rounded font-black uppercase tracking-tighter">Treino</span>
+                                              )}
+                                          </div>
+                                          <div className="text-[10px] font-bold text-gray-400 uppercase flex items-center gap-1">
+                                              {item.reg.hasPartner ? (
+                                                  <>
+                                                    <span className="text-padel">👥 Dupla:</span>
+                                                    <span className="text-gray-600">{item.reg.partnerName}</span>
+                                                  </>
+                                              ) : (
+                                                  <span className="italic">👤 Individual</span>
+                                              )}
+                                          </div>
+                                      </div>
+                                  </div>
+                                  <div className="text-right">
+                                      <div className="text-xs font-black text-padel-dark">{item.player?.totalPoints || 0}</div>
+                                      <div className="text-[8px] text-gray-400 uppercase font-bold">Pontos</div>
+                                  </div>
+                              </div>
+                          ))
+                      ) : (
+                          <div className="p-10 text-center">
+                              <span className="text-4xl block mb-2 opacity-20">🎾</span>
+                              <p className="text-xs text-gray-400 font-bold uppercase tracking-widest">Sem inscrições confirmadas</p>
+                          </div>
+                      )}
+                  </div>
 
-                {waiting.length > 0 && (
-                    <div className="bg-yellow-50/50 p-3 border-t border-yellow-100">
-                        <h4 className="text-[10px] font-black text-yellow-700 uppercase tracking-widest mb-2 flex items-center gap-1">
-                            <span>⏳ Lista de Suplentes ({waiting.length})</span>
-                        </h4>
-                        <div className="grid grid-cols-1 gap-1">
-                            {waiting.map(item => (
-                                <div key={item.reg.id} className="text-xs text-gray-600 flex justify-between items-center bg-white/50 p-2 rounded">
-                                    <span className="font-medium">{item.player?.name || '...'} {item.reg.hasPartner ? <span className="text-[9px] text-gray-400">& {item.reg.partnerName}</span> : ''}</span>
-                                    {item.reg.type === 'training' && <span className="text-[8px] opacity-60">TREINO</span>}
-                                </div>
-                            ))}
-                        </div>
-                    </div>
-                )}
-            </div>
-        );
-      })}
+                  {waiting.length > 0 && (
+                      <div className="bg-yellow-50/80 p-4 border-t border-yellow-100">
+                          <h4 className="text-[10px] font-black text-yellow-700 uppercase tracking-[0.2em] mb-3 flex items-center gap-2">
+                              <span className="animate-pulse">⏳</span> Lista de Suplentes ({waiting.length})
+                          </h4>
+                          <div className="space-y-2">
+                              {waiting.map(item => (
+                                  <div key={item.reg.id} className="text-[11px] font-bold text-yellow-900 flex justify-between items-center bg-white/60 p-2.5 rounded-lg border border-yellow-200/50 shadow-sm">
+                                      <div className="flex items-center gap-2">
+                                        <div className="w-5 h-5 rounded-full bg-yellow-200 flex items-center justify-center text-[8px]">👤</div>
+                                        <span>
+                                            {item.player?.name || '...'} 
+                                            {item.reg.hasPartner && <span className="text-yellow-600/70 font-medium"> & {item.reg.partnerName}</span>}
+                                        </span>
+                                      </div>
+                                      {item.reg.type === 'training' && <span className="text-[8px] bg-orange-100 text-orange-600 px-1 rounded">AULA</span>}
+                                  </div>
+                              ))}
+                          </div>
+                      </div>
+                  )}
+              </div>
+          );
+        })}
+      </div>
+
+      <div className="text-center px-4">
+          <p className="text-[10px] text-gray-400 font-bold uppercase tracking-tighter opacity-50">
+            A lista é atualizada automaticamente em tempo real
+          </p>
+      </div>
     </div>
   );
 };
