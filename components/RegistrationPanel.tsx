@@ -49,7 +49,7 @@ export const RegistrationPanel: React.FC<RegistrationPanelProps> = ({ currentUse
   const [allPlayers, setAllPlayers] = useState<Player[]>([]);
   const [successMsg, setSuccessMsg] = useState('');
 
-  // Define filteredCandidates to handle the error "Cannot find name 'filteredCandidates'"
+  // Define filteredCandidates
   const filteredCandidates = allPlayers.filter(p => 
     p.name.toLowerCase().includes(partnerSearchTerm.toLowerCase()) || 
     p.phone.includes(partnerSearchTerm)
@@ -59,8 +59,10 @@ export const RegistrationPanel: React.FC<RegistrationPanelProps> = ({ currentUse
     const currentState = getAppState();
     setAppState(currentState);
     const allRegs = getRegistrations();
-    
-    // Filter: All registrations for the current tournament date (for calculations)
+    const playersList = getPlayers();
+    setAllPlayers(playersList.filter(p => p.id !== currentUser.id));
+
+    // Filter: All registrations for the current tournament date
     const regsForDate = allRegs.filter(r => r.date === currentState.nextSundayDate);
     setAllTournamentRegistrations(regsForDate);
 
@@ -69,15 +71,11 @@ export const RegistrationPanel: React.FC<RegistrationPanelProps> = ({ currentUse
 
     // Show newest first
     setMyRegistrations(activeRegs.reverse());
-    
-    setAllPlayers(getPlayers().filter(p => p.id !== currentUser.id)); // Exclude self
   };
 
   useEffect(() => {
     loadData();
-    // Subscribe to realtime changes
     const unsubscribe = subscribeToChanges(loadData);
-    // Keep polling as backup
     const interval = setInterval(loadData, 5000); 
     return () => {
         unsubscribe();
@@ -106,7 +104,7 @@ export const RegistrationPanel: React.FC<RegistrationPanelProps> = ({ currentUse
         return;
     }
 
-    // 2. Check Capacity (Only if not already forcing waiting list)
+    // 2. Check Capacity
     if (!forceWaitingList) {
         const { remaining } = getShiftAvailability(selectedShift, regType);
         const needed = registerMode === 'partner' ? 2 : 1;
@@ -125,8 +123,7 @@ export const RegistrationPanel: React.FC<RegistrationPanelProps> = ({ currentUse
         );
 
         if (partnerConflict) {
-            const conflictType = partnerConflict.type === 'training' ? 'TREINO' : 'JOGOS';
-            alert(`⚠️ IMPOSSÍVEL INSCREVER: O jogador ${selectedPartnerName} já está inscrito neste turno em ${conflictType}.`);
+            alert(`⚠️ IMPOSSÍVEL INSCREVER: O jogador ${selectedPartnerName} já está inscrito neste turno.`);
             return;
         }
     }
@@ -148,10 +145,7 @@ export const RegistrationPanel: React.FC<RegistrationPanelProps> = ({ currentUse
     setWaitingListPrompt(null);
     
     setTimeout(() => setSuccessMsg(''), 3000);
-    
-    // Reset form
     setSelectedShift(null);
-    setRegisterMode('individual');
     resetPartnerForm();
     loadData();
   };
@@ -168,17 +162,6 @@ export const RegistrationPanel: React.FC<RegistrationPanelProps> = ({ currentUse
   };
 
   const handleSelectPartner = (player: Player) => {
-      if (selectedShift) {
-          const conflict = allTournamentRegistrations.find(r => 
-              r.shift === selectedShift && 
-              (r.playerId === player.id || r.partnerId === player.id)
-          );
-          if (conflict) {
-              const conflictType = conflict.type === 'training' ? 'TREINO' : 'JOGOS';
-              alert(`⚠️ ALERTA DE CONFLITO:\n\n${player.name} já tem uma inscrição em ${conflictType} para o turno das ${selectedShift}.\n\nNão poderás confirmar a inscrição com este parceiro neste turno.`);
-          }
-      }
-
       setSelectedPartnerId(player.id);
       setSelectedPartnerName(player.name);
       setSelectedPartnerPhoto(player.photoUrl);
@@ -208,18 +191,6 @@ export const RegistrationPanel: React.FC<RegistrationPanelProps> = ({ currentUse
 
       let effectiveId = existingPlayer ? existingPlayer.id : generateUUID();
       let effectiveName = existingPlayer ? existingPlayer.name : newPartnerName;
-      let effectivePhoto = existingPlayer ? existingPlayer.photoUrl : undefined;
-
-      if (selectedShift) {
-          const conflict = allTournamentRegistrations.find(r => 
-              r.shift === selectedShift && 
-              (r.playerId === effectiveId || r.partnerId === effectiveId)
-          );
-          if (conflict) {
-              const conflictType = conflict.type === 'training' ? 'TREINO' : 'JOGOS';
-              alert(`⚠️ ALERTA DE CONFLITO:\n\nO número ${newPartnerPhone} pertence a ${effectiveName}, que JÁ está inscrito em ${conflictType} neste turno.`);
-          }
-      }
 
       if (!existingPlayer) {
          const newPlayer: Player = {
@@ -231,12 +202,10 @@ export const RegistrationPanel: React.FC<RegistrationPanelProps> = ({ currentUse
             participantNumber: 0 
          };
          savePlayer(newPlayer);
-         setAllPlayers(getPlayers().filter(p => p.id !== currentUser.id));
       }
      
      setSelectedPartnerId(effectiveId);
      setSelectedPartnerName(effectiveName);
-     setSelectedPartnerPhoto(effectivePhoto);
      setPartnerSearchStatus('found');
 
      if (isEditing && editingRegId) {
@@ -247,20 +216,13 @@ export const RegistrationPanel: React.FC<RegistrationPanelProps> = ({ currentUse
   const getShiftAvailability = (shift: Shift, type: 'game' | 'training') => {
       const config = appState.courtConfig[shift];
       if (!config) return { total: 0, used: 0, remaining: 0, percentage: 100 };
-
       const numCourts = config[type];
       const totalSlots = numCourts * 4;
-
-      // EXCLUIR suplentes do cálculo de vagas usadas
       const usedSlots = allTournamentRegistrations
           .filter(r => r.shift === shift && r.type === type && !r.isWaitingList)
-          .reduce((acc, r) => {
-              return acc + (r.hasPartner ? 2 : 1);
-          }, 0);
-
+          .reduce((acc, r) => acc + (r.hasPartner ? 2 : 1), 0);
       const remaining = Math.max(0, totalSlots - usedSlots);
       const percentage = totalSlots > 0 ? (usedSlots / totalSlots) * 100 : 100;
-
       return { total: totalSlots, used: usedSlots, remaining, percentage };
   };
 
@@ -270,29 +232,6 @@ export const RegistrationPanel: React.FC<RegistrationPanelProps> = ({ currentUse
   };
 
   const confirmAddPartnerToExisting = (regId: string, partnerId: string, partnerName: string) => {
-      const reg = myRegistrations.find(r => r.id === regId);
-      if (reg) {
-          const partnerConflict = allTournamentRegistrations.find(r => 
-            r.shift === reg.shift && 
-            r.id !== regId && 
-            (r.playerId === partnerId || r.partnerId === partnerId)
-          );
-    
-          if (partnerConflict) {
-              const conflictType = partnerConflict.type === 'training' ? 'TREINO' : 'JOGOS';
-              alert(`⚠️ IMPOSSÍVEL ADICIONAR:\n\n${partnerName} já está inscrito neste turno em ${conflictType}.`);
-              return;
-          }
-
-          if (!reg.isWaitingList) {
-            const { remaining } = getShiftAvailability(reg.shift, reg.type || 'game');
-            if (!reg.hasPartner && remaining < 1) {
-                alert("Não há vagas suficientes neste turno para adicionar um parceiro. Tens de cancelar e inscrever-te como suplente se desejares jogar com parceiro.");
-                return;
-            }
-          }
-      }
-
       updateRegistration(regId, {
           hasPartner: true,
           partnerId: partnerId,
@@ -306,26 +245,17 @@ export const RegistrationPanel: React.FC<RegistrationPanelProps> = ({ currentUse
   };
 
   const handleSaveEditPartner = () => {
-      if (!editingRegId || !selectedPartnerId) {
-          alert("Nenhuma dupla selecionada.");
-          return;
-      }
+      if (!editingRegId || !selectedPartnerId) return;
       confirmAddPartnerToExisting(editingRegId, selectedPartnerId, selectedPartnerName);
   };
 
   const initiateCancelSingle = (reg: Registration, e: React.MouseEvent) => {
     e.preventDefault();
-    e.stopPropagation();
     setCancelTarget({ type: 'single', reg });
-  };
-
-  const initiateCancelAll = () => {
-    setCancelTarget({ type: 'all' });
   };
 
   const confirmCancellation = () => {
       if (!cancelTarget) return;
-
       if (cancelTarget.type === 'single') {
           removeRegistration(cancelTarget.reg.id);
           setSuccessMsg('Inscrição cancelada com sucesso.');
@@ -333,23 +263,14 @@ export const RegistrationPanel: React.FC<RegistrationPanelProps> = ({ currentUse
           myRegistrations.forEach(r => removeRegistration(r.id));
           setSuccessMsg('Todas as inscrições foram canceladas.');
       }
-
       setCancelTarget(null);
       setTimeout(() => setSuccessMsg(''), 3000);
-      setTimeout(loadData, 100);
+      loadData();
   };
 
   const handleClaimSlot = (reg: Registration) => {
-    const { remaining } = getShiftAvailability(reg.shift, reg.type || 'game');
-    const needed = reg.hasPartner ? 2 : 1;
-    
-    if (remaining < needed) {
-        alert(`Infelizmente a vaga já foi preenchida por outro jogador. Restam ${remaining} vagas.`);
-        return;
-    }
-
     updateRegistration(reg.id, { isWaitingList: false });
-    setSuccessMsg('Lugar confirmado! Bem-vindo ao turno.');
+    setSuccessMsg('Lugar confirmado!');
     setTimeout(() => setSuccessMsg(''), 3000);
     loadData();
   };
@@ -362,13 +283,18 @@ export const RegistrationPanel: React.FC<RegistrationPanelProps> = ({ currentUse
             <ul className="space-y-3">
                 {myRegistrations.map(r => {
                     const isFinished = appState.isTournamentFinished;
-                    const partnerPhoto = allPlayers.find(p => p.id === r.partnerId)?.photoUrl;
                     const isTraining = r.type === 'training';
                     const isWaiting = r.isWaitingList;
-                    
-                    // Verificar se há vaga disponível agora para este suplente
                     const { remaining } = getShiftAvailability(r.shift, r.type || 'game');
                     const canPromote = isWaiting && remaining >= (r.hasPartner ? 2 : 1);
+
+                    // Lógica para identificar o parceiro
+                    // Se o user atual é o playerId, o parceiro é o partnerId
+                    // Se o user atual é o partnerId, o parceiro é o playerId
+                    const companionId = r.playerId === currentUser.id ? r.partnerId : r.playerId;
+                    const companionData = getPlayers().find(p => p.id === companionId);
+                    const companionName = r.playerId === currentUser.id ? (r.partnerName || '...') : (companionData?.name || 'Parceiro');
+                    const companionPhoto = companionData?.photoUrl;
 
                     return (
                         <li key={r.id} className={`bg-white p-3 rounded-lg shadow-sm border flex items-center justify-between group transition-all ${canPromote ? 'ring-2 ring-yellow-400 border-yellow-200' : 'border-gray-100'}`}>
@@ -389,14 +315,17 @@ export const RegistrationPanel: React.FC<RegistrationPanelProps> = ({ currentUse
                                     <div className="text-xs text-gray-700 mt-1 flex items-center gap-2">
                                         {r.hasPartner ? (
                                             <>
-                                                <div className="w-6 h-6 rounded-full bg-gray-200 overflow-hidden">
-                                                    {partnerPhoto ? (
-                                                        <img src={partnerPhoto} className="w-full h-full object-cover" />
+                                                <div className="w-6 h-6 rounded-full bg-gray-200 overflow-hidden border border-gray-100">
+                                                    {companionPhoto ? (
+                                                        <img src={companionPhoto} className="w-full h-full object-cover" />
                                                     ) : (
                                                         <div className="w-full h-full flex items-center justify-center text-[10px]">👤</div>
                                                     )}
                                                 </div>
-                                                <span className="font-semibold">{r.partnerName}</span>
+                                                <span className="font-semibold">{companionName}</span>
+                                                {r.partnerId === currentUser.id && (
+                                                    <span className="text-[8px] bg-blue-50 text-blue-600 px-1 rounded font-black">CONVIDADO</span>
+                                                )}
                                             </>
                                         ) : (
                                             <span className="italic text-gray-400">Individual</span>
@@ -414,7 +343,7 @@ export const RegistrationPanel: React.FC<RegistrationPanelProps> = ({ currentUse
                                         OCUPAR VAGA ⚡
                                     </button>
                                 )}
-                                {!isTraining && (
+                                {!isTraining && r.playerId === currentUser.id && (
                                     <button
                                         type="button"
                                         disabled={isFinished}
@@ -523,7 +452,6 @@ export const RegistrationPanel: React.FC<RegistrationPanelProps> = ({ currentUse
                       </div>
                       <div>
                           <label className="block text-xs font-bold text-gray-700 mb-1">Telemóvel</label>
-                          {/* Fixed typo: changed setNewPhone to setNewPartnerPhone as per the state definition on line 31 */}
                           <input type="tel" value={newPartnerPhone} onChange={(e) => setNewPartnerPhone(e.target.value)} className="w-full p-2 border border-gray-300 rounded outline-none" />
                       </div>
                   </div>
@@ -617,15 +545,13 @@ export const RegistrationPanel: React.FC<RegistrationPanelProps> = ({ currentUse
             </Button>
         </form>
 
-        {/* Waiting List Prompt Modal */}
         {waitingListPrompt && (
             <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4 animate-fade-in backdrop-blur-sm">
                 <div className="bg-white rounded-xl shadow-2xl p-6 w-full max-sm border-t-4 border-yellow-500">
                     <div className="text-center mb-6">
                         <div className="w-16 h-16 bg-yellow-100 rounded-full flex items-center justify-center mb-4 mx-auto text-3xl">⏳</div>
                         <h3 className="text-xl font-bold text-gray-800 mb-2">Turno Completo</h3>
-                        <p className="text-sm text-gray-600">As vagas para este turno já estão preenchidas.</p>
-                        <p className="text-sm text-gray-800 font-bold mt-2">Desejas ficar na lista de SUPLENTES para este turno?</p>
+                        <p className="text-sm text-gray-600">Desejas ficar na lista de SUPLENTES para este turno?</p>
                     </div>
                     <div className="flex gap-3">
                         <Button variant="secondary" onClick={() => setWaitingListPrompt(null)} className="flex-1">Não, voltar</Button>
@@ -635,7 +561,6 @@ export const RegistrationPanel: React.FC<RegistrationPanelProps> = ({ currentUse
             </div>
         )}
 
-        {/* Modal Cancelar e Edit Partner omitted for brevity but should be kept in real app */}
         {editingRegId && (
             <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4 animate-fade-in">
                 <div className="bg-white rounded-xl shadow-2xl p-6 w-full max-sm">

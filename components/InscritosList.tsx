@@ -28,18 +28,47 @@ export const InscritosList: React.FC = () => {
   const getPlayer = (id: string) => players.find(p => p.id === id);
   const shifts = Object.values(Shift);
 
-  const getShiftCapacity = (shift: Shift) => {
+  const getActivityCapacity = (shift: Shift, type: 'game' | 'training') => {
     const config = appState.courtConfig[shift];
     if (!config) return 0;
-    // Cada campo de jogo tem 4 vagas. Treinos não contam para esta visualização de "ranking de jogo" 
-    // ou podem ser mostrados à parte, mas vamos focar na ocupação total.
-    return (config.game + config.training) * 4;
+    return (config[type] || 0) * 4;
   };
 
-  const getShiftOccupancy = (shift: Shift) => {
+  const getActivityOccupancy = (shift: Shift, type: 'game' | 'training') => {
     return activeRegistrations
-      .filter(r => r.shift === shift && !r.isWaitingList)
+      .filter(r => r.shift === shift && r.type === type && !r.isWaitingList)
       .reduce((acc, r) => acc + (r.hasPartner ? 2 : 1), 0);
+  };
+
+  const renderPlayerList = (list: { reg: Registration, player: Player | undefined }[]) => {
+    return list.map((item, idx) => (
+      <div key={item.reg.id} className="p-3 flex items-center justify-between hover:bg-gray-50/50 transition-colors border-b border-gray-50 last:border-0">
+          <div className="flex items-center gap-3">
+              <div className="w-7 h-7 rounded-full bg-padel-blue/10 text-padel-blue text-[10px] flex items-center justify-center font-black italic border border-padel-blue/20">
+                  {idx + 1}º
+              </div>
+              <div>
+                  <div className="font-bold text-gray-800 text-sm flex items-center gap-2">
+                      {item.player?.name || 'Jogador...'}
+                  </div>
+                  <div className="text-[10px] font-bold text-gray-400 uppercase flex items-center gap-1">
+                      {item.reg.hasPartner ? (
+                          <>
+                            <span className="text-padel">👥 Dupla:</span>
+                            <span className="text-gray-600 truncate max-w-[120px]">{item.reg.partnerName}</span>
+                          </>
+                      ) : (
+                          <span className="italic">👤 Individual</span>
+                      )}
+                  </div>
+              </div>
+          </div>
+          <div className="text-right">
+              <div className="text-xs font-black text-padel-dark">{item.player?.totalPoints || 0}</div>
+              <div className="text-[8px] text-gray-400 uppercase font-bold">Pontos</div>
+          </div>
+      </div>
+    ));
   };
 
   return (
@@ -54,7 +83,7 @@ export const InscritosList: React.FC = () => {
           </p>
         </div>
         <div className="text-right">
-            <span className="block text-[10px] font-black text-gray-400 uppercase">Total Geral</span>
+            <span className="block text-[10px] font-black text-gray-400 uppercase">Total Confirmados</span>
             <span className="text-2xl font-black text-padel-blue">
                 {activeRegistrations.filter(r => !r.isWaitingList).reduce((acc, r) => acc + (r.hasPartner ? 2 : 1), 0)}
             </span>
@@ -63,101 +92,111 @@ export const InscritosList: React.FC = () => {
 
       <div className="space-y-8">
         {shifts.map(shift => {
-          const shiftRegs = activeRegistrations.filter(r => r.shift === shift);
-          const capacity = getShiftCapacity(shift);
-          const occupied = getShiftOccupancy(shift);
-          
-          const confirmed = shiftRegs.filter(r => !r.isWaitingList)
+          const gameCap = getActivityCapacity(shift, 'game');
+          const gameOcc = getActivityOccupancy(shift, 'game');
+          const trainCap = getActivityCapacity(shift, 'training');
+          const trainOcc = getActivityOccupancy(shift, 'training');
+
+          const shiftRegs = activeRegistrations.filter(r => r.shift === shift && !r.isWaitingList);
+          const gamesList = shiftRegs.filter(r => r.type === 'game' || !r.type)
               .map(reg => ({ reg, player: getPlayer(reg.playerId) }))
               .sort((a, b) => (b.player?.totalPoints || 0) - (a.player?.totalPoints || 0));
 
-          const waiting = shiftRegs.filter(r => r.isWaitingList)
+          const trainingList = shiftRegs.filter(r => r.type === 'training')
+              .map(reg => ({ reg, player: getPlayer(reg.playerId) }))
+              .sort((a, b) => (b.player?.totalPoints || 0) - (a.player?.totalPoints || 0));
+
+          const waitingList = activeRegistrations.filter(r => r.shift === shift && r.isWaitingList)
               .map(reg => ({ reg, player: getPlayer(reg.playerId) }));
 
           return (
               <div key={shift} className="bg-white/90 backdrop-blur-md rounded-2xl shadow-xl overflow-hidden border border-white/20">
-                  <div className="bg-gray-800 text-white p-4 flex justify-between items-center">
-                      <div>
-                        <h3 className="font-black italic text-lg tracking-tight uppercase">{shift}</h3>
-                        <div className="flex items-center gap-2 mt-1">
-                            <div className="w-24 h-1.5 bg-gray-600 rounded-full overflow-hidden">
-                                <div 
-                                    className={`h-full transition-all duration-1000 ${occupied >= capacity ? 'bg-red-500' : 'bg-padel'}`}
-                                    style={{ width: `${Math.min((occupied/capacity)*100, 100)}%` }}
-                                ></div>
-                            </div>
-                            <span className="text-[10px] font-bold text-gray-400 uppercase">{occupied} / {capacity} Vagas</span>
-                        </div>
-                      </div>
-                      <div className="text-right">
-                        <span className={`px-3 py-1 rounded-full text-[10px] font-black uppercase ${occupied >= capacity ? 'bg-red-500/20 text-red-400 border border-red-500/30' : 'bg-padel/20 text-padel-light border border-padel/30'}`}>
-                            {occupied >= capacity ? 'Esgotado' : 'Disponível'}
-                        </span>
-                      </div>
+                  {/* Turno Header */}
+                  <div className="bg-gray-800 text-white p-4">
+                      <h3 className="font-black italic text-lg tracking-tight uppercase">{shift}</h3>
                   </div>
-                  
-                  <div className="divide-y divide-gray-100">
-                      {confirmed.length > 0 ? (
-                          confirmed.map((item, idx) => (
-                              <div key={item.reg.id} className="p-4 flex items-center justify-between hover:bg-gray-50/50 transition-colors">
-                                  <div className="flex items-center gap-4">
-                                      <div className="w-8 h-8 rounded-full bg-padel-blue text-white text-[10px] flex items-center justify-center font-black italic shadow-sm">
-                                          {idx + 1}º
-                                      </div>
-                                      <div>
-                                          <div className="font-black text-gray-800 flex items-center gap-2">
-                                              {item.player?.name || 'Jogador...'}
-                                              {item.reg.type === 'training' && (
-                                                <span className="text-[8px] bg-orange-500 text-white px-1.5 py-0.5 rounded font-black uppercase tracking-tighter">Treino</span>
-                                              )}
-                                          </div>
-                                          <div className="text-[10px] font-bold text-gray-400 uppercase flex items-center gap-1">
-                                              {item.reg.hasPartner ? (
-                                                  <>
-                                                    <span className="text-padel">👥 Dupla:</span>
-                                                    <span className="text-gray-600">{item.reg.partnerName}</span>
-                                                  </>
-                                              ) : (
-                                                  <span className="italic">👤 Individual</span>
-                                              )}
-                                          </div>
-                                      </div>
-                                  </div>
+
+                  <div className="p-4 space-y-6">
+                      {/* Secção de JOGOS */}
+                      {gameCap > 0 && (
+                          <div className="space-y-3">
+                              <div className="flex justify-between items-end">
+                                  <h4 className="text-xs font-black text-padel-dark uppercase tracking-widest flex items-center gap-2">
+                                      <span className="text-lg">🎾</span> JOGOS
+                                  </h4>
                                   <div className="text-right">
-                                      <div className="text-xs font-black text-padel-dark">{item.player?.totalPoints || 0}</div>
-                                      <div className="text-[8px] text-gray-400 uppercase font-bold">Pontos</div>
+                                      <span className="text-[10px] font-bold text-gray-400 uppercase block">{gameOcc} / {gameCap} Vagas</span>
+                                      <span className={`px-2 py-0.5 rounded-full text-[8px] font-black uppercase ${gameOcc >= gameCap ? 'bg-red-500/20 text-red-500' : 'bg-padel/20 text-padel-dark'}`}>
+                                          {gameOcc >= gameCap ? 'Esgotado' : 'Disponível'}
+                                      </span>
                                   </div>
                               </div>
-                          ))
-                      ) : (
-                          <div className="p-10 text-center">
-                              <span className="text-4xl block mb-2 opacity-20">🎾</span>
-                              <p className="text-xs text-gray-400 font-bold uppercase tracking-widest">Sem inscrições confirmadas</p>
+                              <div className="w-full h-1.5 bg-gray-100 rounded-full overflow-hidden">
+                                  <div 
+                                      className={`h-full transition-all duration-1000 ${gameOcc >= gameCap ? 'bg-red-500' : 'bg-padel'}`}
+                                      style={{ width: `${Math.min((gameOcc/gameCap)*100, 100)}%` }}
+                                  ></div>
+                              </div>
+                              <div className="bg-white/50 rounded-xl border border-gray-100 overflow-hidden">
+                                  {gamesList.length > 0 ? renderPlayerList(gamesList) : (
+                                      <p className="p-4 text-center text-[10px] text-gray-400 font-bold uppercase italic">Sem inscritos em jogos</p>
+                                  )}
+                              </div>
+                          </div>
+                      )}
+
+                      {/* Secção de TREINO */}
+                      {trainCap > 0 && (
+                          <div className="space-y-3 pt-4 border-t border-gray-100">
+                              <div className="flex justify-between items-end">
+                                  <h4 className="text-xs font-black text-orange-600 uppercase tracking-widest flex items-center gap-2">
+                                      <span className="text-lg">🎓</span> TREINO / AULAS
+                                  </h4>
+                                  <div className="text-right">
+                                      <span className="text-[10px] font-bold text-gray-400 uppercase block">{trainOcc} / {trainCap} Vagas</span>
+                                      <span className={`px-2 py-0.5 rounded-full text-[8px] font-black uppercase ${trainOcc >= trainCap ? 'bg-red-500/20 text-red-500' : 'bg-orange-500/20 text-orange-600'}`}>
+                                          {trainOcc >= trainCap ? 'Esgotado' : 'Disponível'}
+                                      </span>
+                                  </div>
+                              </div>
+                              <div className="w-full h-1.5 bg-gray-100 rounded-full overflow-hidden">
+                                  <div 
+                                      className={`h-full transition-all duration-1000 ${trainOcc >= trainCap ? 'bg-red-500' : 'bg-orange-500'}`}
+                                      style={{ width: `${Math.min((trainOcc/trainCap)*100, 100)}%` }}
+                                  ></div>
+                              </div>
+                              <div className="bg-white/50 rounded-xl border border-gray-100 overflow-hidden">
+                                  {trainingList.length > 0 ? renderPlayerList(trainingList) : (
+                                      <p className="p-4 text-center text-[10px] text-gray-400 font-bold uppercase italic">Sem inscritos em treino</p>
+                                  )}
+                              </div>
+                          </div>
+                      )}
+
+                      {/* Lista de Suplentes */}
+                      {waitingList.length > 0 && (
+                          <div className="bg-yellow-50/80 p-4 rounded-xl border border-yellow-100 mt-4">
+                              <h4 className="text-[10px] font-black text-yellow-700 uppercase tracking-[0.2em] mb-3 flex items-center gap-2">
+                                  <span className="animate-pulse">⏳</span> Suplentes ({waitingList.length})
+                              </h4>
+                              <div className="space-y-2">
+                                  {waitingList.map(item => (
+                                      <div key={item.reg.id} className="text-[11px] font-bold text-yellow-900 flex justify-between items-center bg-white/60 p-2 rounded-lg border border-yellow-200/50 shadow-sm">
+                                          <div className="flex items-center gap-2">
+                                            <span>
+                                                {item.player?.name || '...'} 
+                                                {item.reg.hasPartner && <span className="text-yellow-600/70 font-medium italic"> & {item.reg.partnerName}</span>}
+                                            </span>
+                                          </div>
+                                          <span className={`text-[8px] px-1.5 py-0.5 rounded font-black uppercase ${item.reg.type === 'training' ? 'bg-orange-100 text-orange-600' : 'bg-padel/10 text-padel-dark'}`}>
+                                              {item.reg.type === 'training' ? 'TREINO' : 'JOGO'}
+                                          </span>
+                                      </div>
+                                  ))}
+                              </div>
                           </div>
                       )}
                   </div>
-
-                  {waiting.length > 0 && (
-                      <div className="bg-yellow-50/80 p-4 border-t border-yellow-100">
-                          <h4 className="text-[10px] font-black text-yellow-700 uppercase tracking-[0.2em] mb-3 flex items-center gap-2">
-                              <span className="animate-pulse">⏳</span> Lista de Suplentes ({waiting.length})
-                          </h4>
-                          <div className="space-y-2">
-                              {waiting.map(item => (
-                                  <div key={item.reg.id} className="text-[11px] font-bold text-yellow-900 flex justify-between items-center bg-white/60 p-2.5 rounded-lg border border-yellow-200/50 shadow-sm">
-                                      <div className="flex items-center gap-2">
-                                        <div className="w-5 h-5 rounded-full bg-yellow-200 flex items-center justify-center text-[8px]">👤</div>
-                                        <span>
-                                            {item.player?.name || '...'} 
-                                            {item.reg.hasPartner && <span className="text-yellow-600/70 font-medium"> & {item.reg.partnerName}</span>}
-                                        </span>
-                                      </div>
-                                      {item.reg.type === 'training' && <span className="text-[8px] bg-orange-100 text-orange-600 px-1 rounded">AULA</span>}
-                                  </div>
-                              ))}
-                          </div>
-                      </div>
-                  )}
               </div>
           );
         })}
