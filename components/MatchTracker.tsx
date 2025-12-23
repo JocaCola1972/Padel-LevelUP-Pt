@@ -18,6 +18,7 @@ export const MatchTracker: React.FC<MatchTrackerProps> = ({ currentUser }) => {
   const [appState, setAppState] = useState<AppState>(getAppState());
   const [viewMode, setViewMode] = useState<'input' | 'history'>('input');
   const [availableShifts, setAvailableShifts] = useState<Shift[]>([]);
+  const [isSubstituteOnly, setIsSubstituteOnly] = useState(false); // New state to detect substitute status
   const [selectedShift, setSelectedShift] = useState<Shift | null>(null);
   const [selectedGame, setSelectedGame] = useState(1);
   const [selectedCourt, setSelectedCourt] = useState(1); 
@@ -40,20 +41,26 @@ export const MatchTracker: React.FC<MatchTrackerProps> = ({ currentUser }) => {
     setAppState(currentState);
     setAllPlayers(players);
 
-    const myShifts = registrations
-        .filter(r => 
-          (r.playerId === currentUser.id || r.partnerId === currentUser.id) && 
-          r.date === currentState.nextSundayDate && 
-          (r.type === 'game' || !r.type)
-        )
-        .map(r => r.shift);
-    
-    const uniqueShifts = Array.from(new Set(myShifts));
-    setAvailableShifts(uniqueShifts);
+    // 1. Get all registrations for current user on the active date
+    const myRegs = registrations.filter(r => 
+      (r.playerId === currentUser.id || r.partnerId === currentUser.id) && 
+      r.date === currentState.nextSundayDate && 
+      (r.type === 'game' || !r.type)
+    );
 
-    if (uniqueShifts.length > 0) {
-        if (!selectedShift || !uniqueShifts.includes(selectedShift)) {
-            setSelectedShift(uniqueShifts[0]);
+    // 2. Filter only those that are NOT in the waiting list
+    const confirmedRegs = myRegs.filter(r => !r.isWaitingList);
+    
+    // 3. Determine shifts available for result entry
+    const uniqueConfirmedShifts = Array.from(new Set(confirmedRegs.map(r => r.shift)));
+    setAvailableShifts(uniqueConfirmedShifts);
+
+    // 4. Check if the user is registered but ONLY as a substitute
+    setIsSubstituteOnly(myRegs.length > 0 && confirmedRegs.length === 0);
+
+    if (uniqueConfirmedShifts.length > 0) {
+        if (!selectedShift || !uniqueConfirmedShifts.includes(selectedShift)) {
+            setSelectedShift(uniqueConfirmedShifts[0]);
         }
     } else {
         setSelectedShift(null);
@@ -255,11 +262,12 @@ export const MatchTracker: React.FC<MatchTrackerProps> = ({ currentUser }) => {
     const myRegistration = allRegs.find(r => 
         (r.playerId === currentUser.id || r.partnerId === currentUser.id) && 
         r.shift === selectedShift && 
-        r.date === tournamentDate
+        r.date === tournamentDate &&
+        !r.isWaitingList
     );
 
     if (!myRegistration) {
-        setAlertConfig({ message: "Erro de Registo", subMessage: "Não foi possível encontrar a tua inscrição para este turno." });
+        setAlertConfig({ message: "Erro de Registo", subMessage: "Não foi possível encontrar a tua inscrição CONFIRMADA para este turno." });
         return;
     }
 
@@ -364,8 +372,24 @@ export const MatchTracker: React.FC<MatchTrackerProps> = ({ currentUser }) => {
               <div className="flex justify-end mb-2">
                  <Button variant="ghost" onClick={() => setViewMode('history')} className="text-xs">📜 Ver Histórico</Button>
               </div>
-              <h2 className="text-xl font-bold text-gray-400 mb-2">Sem Inscrições Ativas</h2>
-              <p className="text-gray-500">Não estás inscrito para <strong>{appState.nextSundayDate}</strong> (Jogos).</p>
+              {isSubstituteOnly ? (
+                  <div className="space-y-4">
+                      <div className="w-16 h-16 bg-yellow-100 text-yellow-600 rounded-full flex items-center justify-center mx-auto text-3xl">⏳</div>
+                      <h2 className="text-xl font-bold text-yellow-700">Lugar em Suplente</h2>
+                      <p className="text-gray-500 text-sm leading-relaxed">
+                          Estás na lista de suplentes para <strong>{appState.nextSundayDate}</strong>. <br/>
+                          Apenas jogadores com lugar confirmado podem registar resultados de jogos.
+                      </p>
+                      <div className="p-3 bg-yellow-50 rounded-lg border border-yellow-100 text-[10px] text-yellow-800 uppercase font-black tracking-widest">
+                          Vai ao separador "INSCREVER" para verificar o teu estado
+                      </div>
+                  </div>
+              ) : (
+                  <>
+                    <h2 className="text-xl font-bold text-gray-400 mb-2">Sem Inscrições Ativas</h2>
+                    <p className="text-gray-500">Não estás inscrito para <strong>{appState.nextSundayDate}</strong> (Jogos).</p>
+                  </>
+              )}
           </div>
       );
   }
