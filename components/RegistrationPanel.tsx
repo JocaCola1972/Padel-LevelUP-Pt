@@ -219,7 +219,11 @@ export const RegistrationPanel: React.FC<RegistrationPanelProps> = ({ currentUse
       const numCourts = config[type];
       const totalSlots = numCourts * 4;
       const usedSlots = allTournamentRegistrations
-          .filter(r => r.shift === shift && r.type === type && !r.isWaitingList)
+          .filter(r => 
+            r.shift === shift && 
+            (r.type === type || (!r.type && type === 'game')) && 
+            !r.isWaitingList
+          )
           .reduce((acc, r) => acc + (r.hasPartner ? 2 : 1), 0);
       const remaining = Math.max(0, totalSlots - usedSlots);
       const percentage = totalSlots > 0 ? (usedSlots / totalSlots) * 100 : 100;
@@ -288,9 +292,6 @@ export const RegistrationPanel: React.FC<RegistrationPanelProps> = ({ currentUse
                     const { remaining } = getShiftAvailability(r.shift, r.type || 'game');
                     const canPromote = isWaiting && remaining >= (r.hasPartner ? 2 : 1);
 
-                    // Lógica para identificar o parceiro
-                    // Se o user atual é o playerId, o parceiro é o partnerId
-                    // Se o user atual é o partnerId, o parceiro é o playerId
                     const companionId = r.playerId === currentUser.id ? r.partnerId : r.playerId;
                     const companionData = getPlayers().find(p => p.id === companionId);
                     const companionName = r.playerId === currentUser.id ? (r.partnerName || '...') : (companionData?.name || 'Parceiro');

@@ -16,29 +16,17 @@ const POINTS_MAP = {
 
 export const MatchTracker: React.FC<MatchTrackerProps> = ({ currentUser }) => {
   const [appState, setAppState] = useState<AppState>(getAppState());
-  
-  // View Mode: 'input' (default) or 'history'
   const [viewMode, setViewMode] = useState<'input' | 'history'>('input');
-  
-  // State
   const [availableShifts, setAvailableShifts] = useState<Shift[]>([]);
   const [selectedShift, setSelectedShift] = useState<Shift | null>(null);
-  
   const [selectedGame, setSelectedGame] = useState(1);
   const [selectedCourt, setSelectedCourt] = useState(1); 
-  
   const [submitted, setSubmitted] = useState(false);
   const [matches, setMatches] = useState<MatchRecord[]>([]);
   const [allPlayers, setAllPlayers] = useState<Player[]>([]);
-
-  // Custom Alert State
   const [alertConfig, setAlertConfig] = useState<{ message: string; subMessage?: string } | null>(null);
-
-  // History Filters
   const [historyDate, setHistoryDate] = useState<string>('');
   const [historyShift, setHistoryShift] = useState<Shift | 'ALL'>('ALL');
-
-  // Self Mode State
   const [selfResult, setSelfResult] = useState<GameResult | null>(null);
   const [goldenPointWon, setGoldenPointWon] = useState<boolean | null>(null);
 
@@ -52,9 +40,12 @@ export const MatchTracker: React.FC<MatchTrackerProps> = ({ currentUser }) => {
     setAppState(currentState);
     setAllPlayers(players);
 
-    // FIX: Include shifts where I am the partner (partnerId)
     const myShifts = registrations
-        .filter(r => (r.playerId === currentUser.id || r.partnerId === currentUser.id) && r.date === currentState.nextSundayDate && r.type === 'game')
+        .filter(r => 
+          (r.playerId === currentUser.id || r.partnerId === currentUser.id) && 
+          r.date === currentState.nextSundayDate && 
+          (r.type === 'game' || !r.type)
+        )
         .map(r => r.shift);
     
     const uniqueShifts = Array.from(new Set(myShifts));
@@ -192,7 +183,6 @@ export const MatchTracker: React.FC<MatchTrackerProps> = ({ currentUser }) => {
           if (match.result === GameResult.LOSS && myResult === GameResult.DRAW) conflictMsg = "A equipa adversária registou Derrota, não pode haver Empate.";
           if (match.result === GameResult.DRAW && myResult !== GameResult.DRAW) conflictMsg = "A equipa adversária registou Empate.";
           
-          // Validação de Ponto de Ouro em caso de Empate mútuo
           if (match.result === GameResult.DRAW && myResult === GameResult.DRAW) {
               if (match.goldenPointWon === myGoldenPointWon) {
                   conflictMsg = myGoldenPointWon 
@@ -262,7 +252,6 @@ export const MatchTracker: React.FC<MatchTrackerProps> = ({ currentUser }) => {
     }
 
     const allRegs = getRegistrations();
-    // FIX: Find registration where user is EITHER player OR partner
     const myRegistration = allRegs.find(r => 
         (r.playerId === currentUser.id || r.partnerId === currentUser.id) && 
         r.shift === selectedShift && 
@@ -274,7 +263,6 @@ export const MatchTracker: React.FC<MatchTrackerProps> = ({ currentUser }) => {
         return;
     }
 
-    // Identificar corretamente ambos os membros da equipa a partir da inscrição encontrada
     const playerIds = [myRegistration.playerId];
     if (myRegistration.partnerId) {
         playerIds.push(myRegistration.partnerId);
@@ -525,10 +513,9 @@ export const MatchTracker: React.FC<MatchTrackerProps> = ({ currentUser }) => {
         )}
       </div>
 
-      {/* CUSTOM ALERT MODAL: Mensagem do LevelUP */}
       {alertConfig && (
           <div className="fixed inset-0 bg-black/70 z-[100] flex items-center justify-center p-4 backdrop-blur-sm animate-fade-in">
-              <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm overflow-hidden border-t-8 border-padel">
+              <div className="bg-white rounded-2xl shadow-2xl w-full max-sm overflow-hidden border-t-8 border-padel">
                   <div className="p-6 text-center">
                       <div className="w-16 h-16 bg-padel/10 text-padel-dark rounded-full flex items-center justify-center mx-auto mb-4 text-3xl">
                           🎾

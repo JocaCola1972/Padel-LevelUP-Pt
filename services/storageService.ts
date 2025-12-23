@@ -34,7 +34,7 @@ const notifyListeners = () => {
     listeners.forEach(cb => cb());
 };
 
-export const isFirebaseConnected = () => isConnected; // Mantido nome para compatibilidade
+export const isFirebaseConnected = () => isConnected;
 
 export const initCloudSync = async () => {
     try {
@@ -51,7 +51,7 @@ export const initCloudSync = async () => {
         enableRealtimeSubscriptions();
         
         isConnected = true;
-        notifyListeners(); // Notify UI that initial load is done
+        notifyListeners(); 
     } catch (e) {
         console.error("Supabase Init Error:", e);
         isConnected = false;
@@ -86,63 +86,70 @@ const fetchAllData = async () => {
         });
     }
     
-    // Safety check for Admin Seeding immediately after fetch
     ensureAdminExists();
 };
 
 const enableRealtimeSubscriptions = () => {
     if (!supabase) return;
 
-    const channel = supabase.channel('db-changes')
+    supabase.channel('db-changes')
         .on(
             'postgres_changes',
             { event: '*', schema: 'public' },
             (payload) => {
-                console.log('Change received!', payload);
                 handleRealtimeUpdate(payload);
             }
         )
-        .subscribe();
+        .subscribe((status) => {
+            console.log("Supabase Realtime Status:", status);
+        });
 };
 
 const handleRealtimeUpdate = (payload: any) => {
     const { table, eventType, new: newRecord, old: oldRecord } = payload;
+    const tableName = table.toLowerCase();
 
-    if (table === 'settings') {
-        const key = newRecord ? newRecord.key : oldRecord.key;
+    // Especial handling for settings table
+    if (tableName === 'settings') {
+        const record = newRecord || oldRecord;
+        if (!record) return;
+        const key = record.key;
         const storageKey = key === 'appState' ? KEYS.STATE : (key === 'masters' ? KEYS.MASTERS : null);
         if (storageKey && newRecord) {
             localStorage.setItem(storageKey, JSON.stringify(newRecord.value));
         }
-        notifyListeners(); // Notify UI
+        notifyListeners();
         return;
     }
 
     let storageKey = '';
-    if (table === 'players') storageKey = KEYS.PLAYERS;
-    else if (table === 'registrations') storageKey = KEYS.REGISTRATIONS;
-    else if (table === 'matches') storageKey = KEYS.MATCHES;
-    else if (table === 'messages') storageKey = KEYS.MESSAGES;
+    if (tableName === 'players') storageKey = KEYS.PLAYERS;
+    else if (tableName === 'registrations') storageKey = KEYS.REGISTRATIONS;
+    else if (tableName === 'matches') storageKey = KEYS.MATCHES;
+    else if (tableName === 'messages') storageKey = KEYS.MESSAGES;
     else return;
 
     const currentDataStr = localStorage.getItem(storageKey);
     let currentData: any[] = currentDataStr ? JSON.parse(currentDataStr) : [];
 
     if (eventType === 'INSERT') {
-        // Prevent duplicates
         if (!currentData.find(item => item.id === newRecord.id)) {
             currentData.push(newRecord);
         }
     } else if (eventType === 'UPDATE') {
-        currentData = currentData.map(item => item.id === newRecord.id ? newRecord : item);
+        const idx = currentData.findIndex(item => item.id === newRecord.id);
+        if (idx >= 0) {
+            currentData[idx] = newRecord;
+        } else {
+            currentData.push(newRecord);
+        }
     } else if (eventType === 'DELETE') {
         currentData = currentData.filter(item => item.id !== oldRecord.id);
     }
 
     localStorage.setItem(storageKey, JSON.stringify(currentData));
-    notifyListeners(); // Notify UI
+    notifyListeners(); 
 };
-
 
 // Utility for ID generation
 export const generateUUID = () => {
@@ -163,7 +170,7 @@ const defaultState: AppState = {
     [Shift.MORNING_2]: { game: 8, training: 1 },
     [Shift.MORNING_3]: { game: 9, training: 0 },
   },
-  nextSundayDate: new Date().toISOString().split('T')[0], // Format YYYY-MM-DD
+  nextSundayDate: new Date().toISOString().split('T')[0], 
   gamesPerShift: {
     [Shift.MORNING_1]: 4,
     [Shift.MORNING_2]: 4,
@@ -189,7 +196,6 @@ const ensureAdminExists = () => {
     const data = localStorage.getItem(KEYS.PLAYERS);
     let players: Player[] = data ? JSON.parse(data) : [];
     
-    // --- ADMIN SEEDING (JocaCola) ---
     const adminUsername = "JocaCola";
     const adminIndex = players.findIndex(p => p.phone === adminUsername); 
 
@@ -223,14 +229,11 @@ const ensureAdminExists = () => {
 
     if (needsSync && adminPlayer && supabase) {
         localStorage.setItem(KEYS.PLAYERS, JSON.stringify(players));
-        // Use upsert for admin
         supabase.from('players').upsert(adminPlayer).then(({ error }) => {
             if (error) console.error("Error seeding admin:", error);
         });
     }
 }
-
-// --- Players ---
 
 export const getPlayers = (): Player[] => {
   const data = localStorage.getItem(KEYS.PLAYERS);
@@ -239,22 +242,14 @@ export const getPlayers = (): Player[] => {
 
 export const savePlayer = async (player: Player): Promise<void> => {
   const players = getPlayers();
-  
-  // Validation Logic (Local)
   let index = players.findIndex(p => p.id === player.id);
   if (index === -1) {
       index = players.findIndex(p => p.phone === player.phone);
-  } else {
-      const conflictIndex = players.findIndex(p => p.phone === player.phone && p.id !== player.id);
-      if (conflictIndex >= 0) {
-          throw new Error("Este número de telemóvel já está a ser usado por outro jogador.");
-      }
   }
   
   let finalPlayer = { ...player };
 
   if (index >= 0) {
-    // Update existing
     if (!players[index].participantNumber) {
         const maxNum = players.reduce((max, p) => Math.max(max, p.participantNumber || 0), 0);
         players[index].participantNumber = maxNum + 1;
@@ -271,7 +266,6 @@ export const savePlayer = async (player: Player): Promise<void> => {
     };
     players[index] = finalPlayer;
   } else {
-    // New Player
     const maxNum = players.reduce((max, p) => Math.max(max, p.participantNumber || 0), 0);
     finalPlayer.participantNumber = maxNum + 1;
     finalPlayer.role = 'user';
@@ -282,11 +276,9 @@ export const savePlayer = async (player: Player): Promise<void> => {
     players.push(finalPlayer);
   }
   
-  // Optimistic Update
   localStorage.setItem(KEYS.PLAYERS, JSON.stringify(players));
   notifyListeners();
   
-  // Cloud Sync
   if (supabase) {
       await supabase.from('players').upsert(finalPlayer);
   }
@@ -325,22 +317,18 @@ export const approveAllPendingPlayers = async (): Promise<void> => {
 };
 
 export const removePlayer = async (playerId: string): Promise<void> => {
-    // Optimistic Delete
     let players = getPlayers();
     players = players.filter(p => p.id !== playerId);
     localStorage.setItem(KEYS.PLAYERS, JSON.stringify(players));
     
-    // Also remove registrations locally for UI feel
     let regs = getRegistrations();
     regs = regs.filter(r => r.playerId !== playerId && r.partnerId !== playerId);
     localStorage.setItem(KEYS.REGISTRATIONS, JSON.stringify(regs));
     
     notifyListeners();
 
-    // Cloud Sync
     if (supabase) {
         await supabase.from('players').delete().eq('id', playerId);
-        // Cascading delete on DB handled by SQL, but explicit doesn't hurt if cascade missing
     }
 };
 
@@ -407,7 +395,6 @@ export const getRegistrations = (): Registration[] => {
 
 export const addRegistration = async (reg: Registration): Promise<void> => {
   const regs = getRegistrations();
-  // Double check locally to avoid UI glitch
   if (!regs.find(r => r.playerId === reg.playerId && r.shift === reg.shift && r.date === reg.date)) {
     regs.push(reg);
     localStorage.setItem(KEYS.REGISTRATIONS, JSON.stringify(regs));
@@ -433,7 +420,6 @@ export const removeRegistration = async (id: string): Promise<void> => {
   
   if (!regToRemove) return;
 
-  // Se a inscrição era confirmada (não suplente), avisar suplentes
   if (!regToRemove.isWaitingList) {
       const substitutes = regs.filter(r => 
           r.isWaitingList && 
@@ -490,7 +476,6 @@ export const addMatch = async (match: MatchRecord, points: number): Promise<void
   
   if (supabase) await supabase.from('matches').insert(match);
 
-  // Update Players Points
   const players = getPlayers();
   const playersToUpdate: Player[] = [];
   
@@ -511,9 +496,6 @@ export const addMatch = async (match: MatchRecord, points: number): Promise<void
   }
 };
 
-/**
- * Removes all matches for a specific date and reverts player points.
- */
 export const deleteMatchesByDate = async (date: string): Promise<void> => {
     let matches = getMatches();
     const players = getPlayers();
@@ -529,7 +511,6 @@ export const deleteMatchesByDate = async (date: string): Promise<void> => {
 
     const playersToUpdateMap: Record<string, Player> = {};
 
-    // Revert points for each player in each match being deleted
     matchesToDelete.forEach(match => {
         const pts = pointsMap[match.result] || 0;
         match.playerIds.forEach(pid => {
@@ -542,24 +523,15 @@ export const deleteMatchesByDate = async (date: string): Promise<void> => {
         });
     });
 
-    // Filter out matches for this date
     const updatedMatches = matches.filter(m => m.date !== date);
-    
-    // Update LocalStorage
     localStorage.setItem(KEYS.MATCHES, JSON.stringify(updatedMatches));
-    
-    // Update affected players in LocalStorage
     const updatedPlayers = players.map(p => playersToUpdateMap[p.id] || p);
     localStorage.setItem(KEYS.PLAYERS, JSON.stringify(updatedPlayers));
     
     notifyListeners();
 
-    // Cloud Sync
     if (supabase) {
-        // 1. Delete matches in Supabase
         await supabase.from('matches').delete().eq('date', date);
-        
-        // 2. Update all affected players in Supabase
         const playersToUpsert = Object.values(playersToUpdateMap);
         if (playersToUpsert.length > 0) {
             await supabase.from('players').upsert(playersToUpsert);
@@ -631,13 +603,11 @@ export const deleteMessageForUser = async (messageId: string, userId: string): P
     if (!msg) return;
 
     if (msg.receiverId === userId) {
-        // Individual message: Delete the record entirely
         const updated = messages.filter(m => m.id !== messageId);
         localStorage.setItem(KEYS.MESSAGES, JSON.stringify(updated));
         notifyListeners();
         if (supabase) await supabase.from('messages').delete().eq('id', messageId);
     } else if (msg.receiverId === 'ALL') {
-        // Broadcast message: Hide for this user only
         const key = `padel_deleted_broadcasts_${userId}`;
         const data = localStorage.getItem(key);
         const deletedList: string[] = data ? JSON.parse(data) : [];
@@ -664,7 +634,6 @@ export const deleteAllMessagesForUser = async (userId: string): Promise<void> =>
         }
     });
 
-    // 1. Apagar mensagens privadas do store global
     if (privateIdsToDelete.length > 0) {
         const allMessages = getMessages();
         const updatedMessages = allMessages.filter(m => !privateIdsToDelete.includes(m.id));
@@ -672,7 +641,6 @@ export const deleteAllMessagesForUser = async (userId: string): Promise<void> =>
         if (supabase) await supabase.from('messages').delete().in('id', privateIdsToDelete);
     }
 
-    // 2. Esconder broadcasts localmente
     if (broadcastIdsToHide.length > 0) {
         const key = `padel_deleted_broadcasts_${userId}`;
         const data = localStorage.getItem(key);
@@ -754,7 +722,6 @@ export const requestPasswordReset = (phone: string): boolean => {
         playerPhone: player.phone,
         timestamp: Date.now()
     };
-    // This calls updateAppState which handles cloud sync
     updateAppState({
         passwordResetRequests: [...state.passwordResetRequests, newRequest]
     });

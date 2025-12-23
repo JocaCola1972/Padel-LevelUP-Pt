@@ -36,7 +36,11 @@ export const InscritosList: React.FC = () => {
 
   const getActivityOccupancy = (shift: Shift, type: 'game' | 'training') => {
     return activeRegistrations
-      .filter(r => r.shift === shift && r.type === type && !r.isWaitingList)
+      .filter(r => 
+        r.shift === shift && 
+        (r.type === type || (!r.type && type === 'game')) && 
+        !r.isWaitingList
+      )
       .reduce((acc, r) => acc + (r.hasPartner ? 2 : 1), 0);
   };
 
@@ -111,7 +115,6 @@ export const InscritosList: React.FC = () => {
 
           return (
               <div key={shift} className="bg-white/90 backdrop-blur-md rounded-2xl shadow-xl overflow-hidden border border-white/20">
-                  {/* Turno Header */}
                   <div className="bg-gray-800 text-white p-4">
                       <h3 className="font-black italic text-lg tracking-tight uppercase">{shift}</h3>
                   </div>
