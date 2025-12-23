@@ -1,13 +1,13 @@
 
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect } from 'react';
 import { AppState, Player, Registration, Shift, MatchRecord, GameResult } from '../types';
-import { getAppState, updateAppState, getRegistrations, getPlayers, removeRegistration, updateRegistration, getMatches, subscribeToChanges, deleteMatchesByDate, deleteRegistrationsByDate, clearAllMessages } from '../services/storageService';
+import { getAppState, updateAppState, getRegistrations, getPlayers, removeRegistration, updateRegistration, getMatches, subscribeToChanges, deleteMatchesByDate, deleteRegistrationsByDate } from '../services/storageService';
 import { Button } from './Button';
 
 // Declare XLSX for sheetjs
 declare const XLSX: any;
 
-const DEFAULT_ORDER = ['config', 'visual', 'finish', 'report', 'registrations', 'maintenance'];
+const DEFAULT_ORDER = ['config', 'courts', 'report', 'registrations'];
 
 export const AdminPanel: React.FC = () => {
   const [state, setState] = useState<AppState>(getAppState());
@@ -36,24 +36,24 @@ export const AdminPanel: React.FC = () => {
   // Reset Registrations Confirmation State
   const [showRegResetConfirm, setShowRegResetConfirm] = useState(false);
 
-  // Clear Messages Confirmation State
-  const [showClearMessagesConfirm, setShowClearMessagesConfirm] = useState(false);
-
   // End Tournament Modal State
   const [showEndTournament, setShowEndTournament] = useState(false);
-
-  // Logo Upload
-  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const loadData = () => {
     const appState = getAppState();
     
-    // Migration Logic: Ensure all default sections exist in the order
+    // Migration Logic
     let currentOrder = appState.adminSectionOrder || DEFAULT_ORDER;
     const missingSections = DEFAULT_ORDER.filter(s => !currentOrder.includes(s));
     
     if (missingSections.length > 0) {
         currentOrder = [...currentOrder, ...missingSections];
+        updateAppState({ ...appState, adminSectionOrder: currentOrder });
+    }
+
+    // Ensure 'finish' is removed if it somehow still exists in order
+    if (currentOrder.includes('finish')) {
+        currentOrder = currentOrder.filter(s => s !== 'finish');
         updateAppState({ ...appState, adminSectionOrder: currentOrder });
     }
 
@@ -134,29 +134,6 @@ export const AdminPanel: React.FC = () => {
     setTimeout(loadData, 100); 
   };
 
-  const handleLogoUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-      const file = e.target.files?.[0];
-      if (!file) return;
-
-      const reader = new FileReader();
-      reader.onloadend = () => {
-          const base64String = reader.result as string;
-          const newState = { ...state, customLogo: base64String };
-          updateAppState(newState);
-          setState(newState);
-          showMessageTemporarily();
-      };
-      reader.readAsDataURL(file);
-  };
-
-  const handleResetLogo = () => {
-      const newState = { ...state, customLogo: undefined };
-      updateAppState(newState);
-      setState(newState);
-      showMessageTemporarily();
-      if (fileInputRef.current) fileInputRef.current.value = '';
-  };
-
   const moveSection = (key: string, direction: 'up' | 'down') => {
       const currentOrder = [...(state.adminSectionOrder || DEFAULT_ORDER)];
       const index = currentOrder.indexOf(key);
@@ -209,13 +186,6 @@ export const AdminPanel: React.FC = () => {
       setShowRegResetConfirm(false);
       loadData();
       alert("Inscrições eliminadas com sucesso.");
-  };
-
-  const handleExecuteClearMessages = async () => {
-      await clearAllMessages();
-      setShowClearMessagesConfirm(false);
-      loadData();
-      alert("Todas as mensagens foram removidas do sistema.");
   };
 
   const showMessageTemporarily = () => {
@@ -360,7 +330,7 @@ export const AdminPanel: React.FC = () => {
                 <div key="config" className="bg-white p-6 rounded-xl shadow-lg border-t-4 border-gray-800 animate-fade-in">
                     <div className="flex justify-between items-start mb-6">
                         <h2 className="text-2xl font-bold text-gray-800 flex items-center gap-2">
-                            ⚙️ Configuração Geral
+                            ⚙️ Gestão de Inscrições
                         </h2>
                         {controls}
                     </div>
@@ -399,7 +369,7 @@ export const AdminPanel: React.FC = () => {
                                     </div>
                                     <div className="md:w-1/2 p-3 bg-blue-50 rounded-lg border border-blue-100">
                                         <p className="text-[10px] text-blue-800 leading-tight">
-                                            Se definida, as inscrições abrirão automaticamente na hora configurada (Geralmente aos Domingos). A abertura manual continua disponível.
+                                            Se definida, as inscrições abrirão automaticamente na hora configurada.
                                         </p>
                                     </div>
                                 </div>
@@ -422,8 +392,37 @@ export const AdminPanel: React.FC = () => {
                                 )}
                             </div>
                         </div>
+
+                        {/* Merged 'Finalizar Evento' Area */}
+                        <div className="p-4 bg-purple-50 rounded-lg border border-purple-100 mt-4">
+                            <div className="flex flex-col md:flex-row justify-between items-center gap-4">
+                                <div>
+                                    <h3 className="font-bold text-purple-800">🏁 Finalizar Torneio</h3>
+                                    <p className="text-[10px] text-purple-600 leading-tight uppercase font-bold tracking-wider">Bloqueia inscrições, resultados e gera o relatório final do dia.</p>
+                                </div>
+                                <Button 
+                                    onClick={handleEndTournament}
+                                    className="bg-purple-600 hover:bg-purple-700 text-white shadow-purple-200 text-xs py-2 px-4 whitespace-nowrap"
+                                >
+                                    Terminar Agora
+                                </Button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+              );
+          case 'courts':
+              return (
+                <div key="courts" className="bg-white p-6 rounded-xl shadow-lg border-t-4 border-blue-800 animate-fade-in">
+                    <div className="flex justify-between items-start mb-6">
+                        <h2 className="text-2xl font-bold text-gray-800 flex items-center gap-2">
+                            🎾 Gestão de Jogos e Campos
+                        </h2>
+                        {controls}
+                    </div>
+                    <div className="space-y-6">
                         <div className="bg-gray-50 p-4 rounded-lg">
-                            <h3 className="font-bold text-gray-700 mb-4">Gestão de Campos por Turno</h3>
+                            <h3 className="font-bold text-gray-700 mb-4 uppercase text-xs tracking-widest">Alocação de Campos por Turno</h3>
                             <div className="grid grid-cols-1 gap-4">
                                 {Object.values(Shift).map(shift => {
                                     const config = state.courtConfig[shift] || { game: 4, training: 0 };
@@ -463,7 +462,7 @@ export const AdminPanel: React.FC = () => {
                             </div>
                         </div>
                         <div className="p-4 bg-gray-50 rounded-lg">
-                            <h3 className="font-bold text-gray-700 mb-4">Limite de Jogos por Jogador</h3>
+                            <h3 className="font-bold text-gray-700 mb-4 uppercase text-xs tracking-widest">Limite de Jogos por Jogador</h3>
                             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                                 {Object.values(Shift).map(shift => {
                                     const currentLimit = state.gamesPerShift[shift] || 5;
@@ -490,69 +489,6 @@ export const AdminPanel: React.FC = () => {
                                 })}
                             </div>
                         </div>
-                    </div>
-                </div>
-              );
-          case 'visual':
-              return (
-                <div key="visual" className="bg-white p-6 rounded-xl shadow-lg border-t-4 border-lime-600 animate-fade-in">
-                    <div className="flex justify-between items-start mb-6">
-                        <h2 className="text-2xl font-bold text-gray-800 flex items-center gap-2">
-                            🖼️ Configuração Visual
-                        </h2>
-                        {controls}
-                    </div>
-                    <div className="p-4 bg-gray-50 rounded-lg">
-                        <h3 className="font-bold text-gray-700 mb-4">Logótipo e Ícone (Favicon)</h3>
-                        <div className="flex flex-col md:flex-row items-center gap-6">
-                            <div className="w-32 h-32 rounded-full border-4 border-padel overflow-hidden bg-white flex-shrink-0 relative shadow-inner">
-                                <img 
-                                    src={state.customLogo || '/logo.png'} 
-                                    alt="Preview" 
-                                    className="w-full h-full object-cover"
-                                />
-                            </div>
-                            <div className="flex-1 space-y-3">
-                                <p className="text-xs text-gray-500 leading-relaxed">
-                                    Esta imagem substitui o logótipo no ecrã inicial e serve como o ícone (favicon) da aplicação.
-                                </p>
-                                <input 
-                                    type="file" 
-                                    accept="image/*"
-                                    ref={fileInputRef}
-                                    onChange={handleLogoUpload}
-                                    className="block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-xs file:font-semibold file:bg-padel-light/20 file:text-padel-dark hover:file:bg-padel-light/30 transition-all cursor-pointer"
-                                />
-                                {state.customLogo && (
-                                    <button 
-                                        onClick={handleResetLogo}
-                                        className="text-xs text-red-500 font-bold hover:underline block"
-                                    >
-                                        Restaurar logótipo padrão
-                                    </button>
-                                )}
-                            </div>
-                        </div>
-                    </div>
-                </div>
-              );
-          case 'finish':
-              return (
-                <div key="finish" className="bg-white p-6 rounded-xl shadow-lg border-t-4 border-purple-600 animate-fade-in">
-                    <div className="flex justify-between items-center mb-4">
-                        <div>
-                            <h2 className="text-2xl font-bold text-gray-800">🏁 Finalizar Evento</h2>
-                            <p className="text-sm text-gray-500">Bloquear inscrições/resultados e gerar relatório final.</p>
-                        </div>
-                        {controls}
-                    </div>
-                    <div className="flex justify-end">
-                        <Button 
-                            onClick={handleEndTournament}
-                            className="bg-purple-600 hover:bg-purple-700 text-white shadow-purple-200"
-                        >
-                            Terminar Torneio
-                        </Button>
                     </div>
                 </div>
               );
@@ -590,9 +526,6 @@ export const AdminPanel: React.FC = () => {
                                 className="w-full p-2 border border-gray-200 rounded outline-none focus:ring-2 focus:ring-padel-blue"
                             />
                         </div>
-                        <p className="text-[10px] text-gray-400 italic sm:max-w-[150px]">
-                            Mostra resultados de qualquer data guardada no sistema.
-                        </p>
                     </div>
                     <div className="overflow-x-auto border rounded-lg">
                         <table className="w-full text-sm text-left">
@@ -618,7 +551,7 @@ export const AdminPanel: React.FC = () => {
                                             const teamNames = match.playerIds.map(pid => getPlayerDetails(pid)?.name || '...').join(' & ');
                                             const points = getPointsForResult(match.result);
                                             return (
-                                                <tr key={match.id} className="hover:bg-gray-50">
+                                                <tr key={match.id} className="hover:bg-gray-50/50">
                                                     <td className="px-4 py-2 font-mono text-xs whitespace-nowrap">{match.shift}</td>
                                                     <td className="px-4 py-2 text-center">{match.courtNumber}</td>
                                                     <td className="px-4 py-2 text-center">{match.gameNumber}</td>
@@ -682,8 +615,8 @@ export const AdminPanel: React.FC = () => {
                         </div>
                     </div>
 
-                    <p className="text-sm text-gray-500 mb-4">
-                        Inscritos para <span className="font-bold">{regFilterDate}</span>:
+                    <p className="text-sm text-gray-500 mb-4 font-medium uppercase tracking-tighter">
+                        Inscritos para <span className="font-bold text-gray-900">{regFilterDate}</span>:
                     </p>
                     {Object.values(Shift).map(shift => {
                         const shiftRegs = filteredRegistrations.filter(r => r.shift === shift);
@@ -697,7 +630,7 @@ export const AdminPanel: React.FC = () => {
                                     {shiftRegs.map(reg => {
                                         const player = getPlayerDetails(reg.playerId);
                                         return (
-                                            <div key={reg.id} className="p-3 flex justify-between items-center hover:bg-red-50 transition-colors group">
+                                            <div key={reg.id} className="p-3 flex justify-between items-center hover:bg-gray-50 transition-colors group">
                                                 <div>
                                                     <div className="font-bold text-gray-800 flex items-center gap-2">
                                                         {player ? player.name : 'Desconhecido'}
@@ -751,31 +684,6 @@ export const AdminPanel: React.FC = () => {
                             Nenhuma inscrição encontrada para esta data ({regFilterDate}).
                         </div>
                     )}
-                </div>
-              );
-          case 'maintenance':
-              return (
-                <div key="maintenance" className="bg-white p-6 rounded-xl shadow-lg border-t-4 border-red-900 animate-fade-in">
-                    <div className="flex justify-between items-start mb-6">
-                        <h2 className="text-2xl font-bold text-gray-800 flex items-center gap-2">
-                            🛠️ Manutenção do Sistema
-                        </h2>
-                        {controls}
-                    </div>
-                    <div className="space-y-4">
-                        <div className="p-4 bg-red-50 rounded-lg border border-red-100 flex flex-col md:flex-row md:items-center justify-between gap-4">
-                            <div>
-                                <h3 className="font-bold text-red-800">Limpeza de Mensagens</h3>
-                                <p className="text-xs text-red-600">Elimina todas as mensagens (Directas e Broadcasts) do sistema para todos os utilizadores.</p>
-                            </div>
-                            <Button 
-                                onClick={() => setShowClearMessagesConfirm(true)}
-                                className="bg-red-800 hover:bg-red-900 text-white text-xs py-2 shadow-red-200"
-                            >
-                                Limpar Histórico de Mensagens
-                            </Button>
-                        </div>
-                    </div>
                 </div>
               );
           default:
@@ -953,46 +861,6 @@ export const AdminPanel: React.FC = () => {
           </div>
       )}
 
-      {/* CLEAR MESSAGES CONFIRMATION MODAL */}
-      {showClearMessagesConfirm && (
-          <div className="fixed inset-0 bg-black/70 z-[100] flex items-center justify-center p-4 backdrop-blur-sm animate-fade-in">
-              <div className="bg-white rounded-2xl shadow-2xl w-full max-sm overflow-hidden border-t-8 border-red-900">
-                  <div className="p-6 text-center">
-                      <div className="w-16 h-16 bg-red-100 text-red-900 rounded-full flex items-center justify-center mx-auto mb-4 text-3xl">
-                          🗑️
-                      </div>
-                      <h3 className="text-xl font-black text-red-900 mb-2 tracking-tight">Mensagem do LevelUP</h3>
-                      <div className="space-y-4">
-                        <p className="text-gray-800 font-bold leading-tight">
-                            Tens a certeza que desejas apagar TODAS as mensagens do sistema?
-                        </p>
-                        <div className="text-xs text-gray-500 leading-relaxed space-y-2 p-3 bg-gray-50 rounded-lg text-left italic">
-                            <p>• Todas as mensagens diretas entre utilizadores serão removidas.</p>
-                            <p>• Todos os avisos globais (Broadcasts) serão eliminados.</p>
-                            <p>• Esta limpeza aplica-se a todos os dispositivos em tempo real.</p>
-                        </div>
-                        <p className="text-xs font-black text-red-600 uppercase">Atenção: Esta ação é irreversível!</p>
-                      </div>
-                  </div>
-                  <div className="p-4 bg-gray-50 flex gap-3">
-                      <Button 
-                        variant="secondary"
-                        onClick={() => setShowClearMessagesConfirm(false)} 
-                        className="flex-1 py-3 font-bold"
-                      >
-                          Não, Cancelar
-                      </Button>
-                      <Button 
-                        onClick={handleExecuteClearMessages} 
-                        className="flex-1 py-3 bg-red-900 hover:bg-black font-black text-white"
-                      >
-                          Sim, Apagar Tudo
-                      </Button>
-                  </div>
-              </div>
-          </div>
-      )}
-
       {/* End Tournament Modal */}
       {showEndTournament && (
           <div className="fixed inset-0 bg-black/80 z-50 flex items-center justify-center p-4 animate-fade-in backdrop-blur-sm overflow-y-auto">
@@ -1039,7 +907,7 @@ export const AdminPanel: React.FC = () => {
                                                   shiftMatches.map(m => {
                                                       const teamNames = m.playerIds.map(pid => getPlayerDetails(pid)?.name || '...').join(' & ');
                                                       return (
-                                                          <tr key={m.id} className="hover:bg-gray-50">
+                                                          <tr key={m.id} className="hover:bg-gray-50/50">
                                                               <td className="px-4 py-2 text-center font-bold text-gray-500">{m.courtNumber}</td>
                                                               <td className="px-4 py-2 text-center font-mono text-gray-400">#{m.gameNumber}</td>
                                                               <td className="px-4 py-2 font-semibold text-gray-800">{teamNames}</td>

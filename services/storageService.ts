@@ -186,7 +186,8 @@ const defaultState: AppState = {
   customLogo: undefined,
   isTournamentFinished: false,
   passwordResetRequests: [],
-  adminSectionOrder: ['config', 'visual', 'finish', 'report', 'registrations', 'maintenance'],
+  adminSectionOrder: ['config', 'courts', 'report', 'registrations'],
+  toolsSectionOrder: ['visual', 'maintenance'],
   autoOpenTime: '15:00'
 };
 
@@ -709,7 +710,27 @@ export const getAppState = (): AppState => {
     }
     let passwordResetRequests = parsed.passwordResetRequests || [];
     let adminSectionOrder = parsed.adminSectionOrder || defaultState.adminSectionOrder;
-    return { ...defaultState, ...parsed, gamesPerShift, courtConfig, passwordResetRequests, adminSectionOrder };
+    let toolsSectionOrder = parsed.toolsSectionOrder || defaultState.toolsSectionOrder;
+
+    // Se as seções de ferramentas ainda estiverem no adminOrder (migração), mova-as
+    if (adminSectionOrder.includes('visual') || adminSectionOrder.includes('maintenance') || adminSectionOrder.includes('finish')) {
+        adminSectionOrder = adminSectionOrder.filter(s => s !== 'visual' && s !== 'maintenance' && s !== 'finish');
+    }
+    
+    // Garantir que 'courts' existe na ordem administrativa
+    if (!adminSectionOrder.includes('courts')) {
+        adminSectionOrder.splice(1, 0, 'courts');
+    }
+
+    return { 
+        ...defaultState, 
+        ...parsed, 
+        gamesPerShift, 
+        courtConfig, 
+        passwordResetRequests, 
+        adminSectionOrder,
+        toolsSectionOrder
+    };
   }
   return defaultState;
 };

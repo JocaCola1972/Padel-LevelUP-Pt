@@ -80,6 +80,7 @@ export interface AppState {
   isTournamentFinished?: boolean;
   passwordResetRequests: PasswordResetRequest[]; // List of pending requests
   adminSectionOrder?: string[]; // Ordem das secções no painel admin
+  toolsSectionOrder?: string[]; // Ordem das secções no painel tools
   autoOpenTime?: string; // HH:mm format for automatic registration opening
 }
 

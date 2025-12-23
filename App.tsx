@@ -13,6 +13,7 @@ import { ProfileModal } from './components/ProfileModal';
 import { MastersLup } from './components/MastersLup';
 import { NotificationModal } from './components/NotificationModal';
 import { LevelUpInfo } from './components/LevelUpInfo';
+import { ToolsPanel } from './components/ToolsPanel';
 import { generateTacticalTip } from './services/geminiService';
 import { getAppState, getUnreadCount, initCloudSync, isFirebaseConnected, subscribeToChanges, getPlayers, updateAppState } from './services/storageService';
 
@@ -24,7 +25,8 @@ enum Tab {
   RANKING = 'ranking',
   MEMBERS = 'members',
   MASTERS = 'masters',
-  ADMIN = 'admin'
+  ADMIN = 'admin',
+  TOOLS = 'tools'
 }
 
 enum ViewState {
@@ -288,6 +290,7 @@ const App: React.FC = () => {
         {/* Protected Tabs */}
         {activeTab === Tab.MASTERS && isAnyAdmin && <MastersLup isAdmin={isAnyAdmin} />}
         {activeTab === Tab.MEMBERS && isAnyAdmin && <MembersList currentUser={currentUser} />}
+        {activeTab === Tab.TOOLS && isAnyAdmin && <ToolsPanel />}
         {activeTab === Tab.ADMIN && isAnyAdmin && <AdminPanel />}
       </main>
 
@@ -348,6 +351,14 @@ const App: React.FC = () => {
                     </span>
                 )}
             </div>
+          )}
+          {isAnyAdmin && (
+            <NavButton 
+              active={activeTab === Tab.TOOLS} 
+              onClick={() => setActiveTab(Tab.TOOLS)}
+              icon="🛠️"
+              label="Tools"
+            />
           )}
           {isAnyAdmin && (
             <NavButton 
