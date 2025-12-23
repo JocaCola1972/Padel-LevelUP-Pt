@@ -1,13 +1,13 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 import { AppState, Player, Registration, Shift, MatchRecord, GameResult } from '../types';
-import { getAppState, updateAppState, getRegistrations, getPlayers, removeRegistration, updateRegistration, getMatches, subscribeToChanges, deleteMatchesByDate, deleteRegistrationsByDate } from '../services/storageService';
+import { getAppState, updateAppState, getRegistrations, getPlayers, removeRegistration, updateRegistration, getMatches, subscribeToChanges, deleteMatchesByDate, deleteRegistrationsByDate, clearAllMessages } from '../services/storageService';
 import { Button } from './Button';
 
 // Declare XLSX for sheetjs
 declare const XLSX: any;
 
-const DEFAULT_ORDER = ['config', 'visual', 'finish', 'report', 'registrations'];
+const DEFAULT_ORDER = ['config', 'visual', 'finish', 'report', 'registrations', 'maintenance'];
 
 export const AdminPanel: React.FC = () => {
   const [state, setState] = useState<AppState>(getAppState());
@@ -35,6 +35,9 @@ export const AdminPanel: React.FC = () => {
   
   // Reset Registrations Confirmation State
   const [showRegResetConfirm, setShowRegResetConfirm] = useState(false);
+
+  // Clear Messages Confirmation State
+  const [showClearMessagesConfirm, setShowClearMessagesConfirm] = useState(false);
 
   // End Tournament Modal State
   const [showEndTournament, setShowEndTournament] = useState(false);
@@ -206,6 +209,13 @@ export const AdminPanel: React.FC = () => {
       setShowRegResetConfirm(false);
       loadData();
       alert("Inscrições eliminadas com sucesso.");
+  };
+
+  const handleExecuteClearMessages = async () => {
+      await clearAllMessages();
+      setShowClearMessagesConfirm(false);
+      loadData();
+      alert("Todas as mensagens foram removidas do sistema.");
   };
 
   const showMessageTemporarily = () => {
@@ -743,6 +753,31 @@ export const AdminPanel: React.FC = () => {
                     )}
                 </div>
               );
+          case 'maintenance':
+              return (
+                <div key="maintenance" className="bg-white p-6 rounded-xl shadow-lg border-t-4 border-red-900 animate-fade-in">
+                    <div className="flex justify-between items-start mb-6">
+                        <h2 className="text-2xl font-bold text-gray-800 flex items-center gap-2">
+                            🛠️ Manutenção do Sistema
+                        </h2>
+                        {controls}
+                    </div>
+                    <div className="space-y-4">
+                        <div className="p-4 bg-red-50 rounded-lg border border-red-100 flex flex-col md:flex-row md:items-center justify-between gap-4">
+                            <div>
+                                <h3 className="font-bold text-red-800">Limpeza de Mensagens</h3>
+                                <p className="text-xs text-red-600">Elimina todas as mensagens (Directas e Broadcasts) do sistema para todos os utilizadores.</p>
+                            </div>
+                            <Button 
+                                onClick={() => setShowClearMessagesConfirm(true)}
+                                className="bg-red-800 hover:bg-red-900 text-white text-xs py-2 shadow-red-200"
+                            >
+                                Limpar Histórico de Mensagens
+                            </Button>
+                        </div>
+                    </div>
+                </div>
+              );
           default:
               return null;
       }
@@ -841,7 +876,7 @@ export const AdminPanel: React.FC = () => {
       {/* RESET RESULTS CONFIRMATION MODAL: Mensagem do LevelUP */}
       {showResetConfirm && (
           <div className="fixed inset-0 bg-black/70 z-[100] flex items-center justify-center p-4 backdrop-blur-sm animate-fade-in">
-              <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm overflow-hidden border-t-8 border-red-600">
+              <div className="bg-white rounded-2xl shadow-2xl w-full max-sm overflow-hidden border-t-8 border-red-600">
                   <div className="p-6 text-center">
                       <div className="w-16 h-16 bg-red-100 text-red-600 rounded-full flex items-center justify-center mx-auto mb-4 text-3xl">
                           ⚠️
@@ -881,7 +916,7 @@ export const AdminPanel: React.FC = () => {
       {/* RESET REGISTRATIONS CONFIRMATION MODAL: Mensagem do LevelUP */}
       {showRegResetConfirm && (
           <div className="fixed inset-0 bg-black/70 z-[100] flex items-center justify-center p-4 backdrop-blur-sm animate-fade-in">
-              <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm overflow-hidden border-t-8 border-red-600">
+              <div className="bg-white rounded-2xl shadow-2xl w-full max-sm overflow-hidden border-t-8 border-red-600">
                   <div className="p-6 text-center">
                       <div className="w-16 h-16 bg-red-100 text-red-600 rounded-full flex items-center justify-center mx-auto mb-4 text-3xl">
                           ⚠️
@@ -912,6 +947,46 @@ export const AdminPanel: React.FC = () => {
                         className="flex-1 py-3 bg-red-600 hover:bg-red-700 font-black text-white"
                       >
                           Sim, Limpar
+                      </Button>
+                  </div>
+              </div>
+          </div>
+      )}
+
+      {/* CLEAR MESSAGES CONFIRMATION MODAL */}
+      {showClearMessagesConfirm && (
+          <div className="fixed inset-0 bg-black/70 z-[100] flex items-center justify-center p-4 backdrop-blur-sm animate-fade-in">
+              <div className="bg-white rounded-2xl shadow-2xl w-full max-sm overflow-hidden border-t-8 border-red-900">
+                  <div className="p-6 text-center">
+                      <div className="w-16 h-16 bg-red-100 text-red-900 rounded-full flex items-center justify-center mx-auto mb-4 text-3xl">
+                          🗑️
+                      </div>
+                      <h3 className="text-xl font-black text-red-900 mb-2 tracking-tight">Mensagem do LevelUP</h3>
+                      <div className="space-y-4">
+                        <p className="text-gray-800 font-bold leading-tight">
+                            Tens a certeza que desejas apagar TODAS as mensagens do sistema?
+                        </p>
+                        <div className="text-xs text-gray-500 leading-relaxed space-y-2 p-3 bg-gray-50 rounded-lg text-left italic">
+                            <p>• Todas as mensagens diretas entre utilizadores serão removidas.</p>
+                            <p>• Todos os avisos globais (Broadcasts) serão eliminados.</p>
+                            <p>• Esta limpeza aplica-se a todos os dispositivos em tempo real.</p>
+                        </div>
+                        <p className="text-xs font-black text-red-600 uppercase">Atenção: Esta ação é irreversível!</p>
+                      </div>
+                  </div>
+                  <div className="p-4 bg-gray-50 flex gap-3">
+                      <Button 
+                        variant="secondary"
+                        onClick={() => setShowClearMessagesConfirm(false)} 
+                        className="flex-1 py-3 font-bold"
+                      >
+                          Não, Cancelar
+                      </Button>
+                      <Button 
+                        onClick={handleExecuteClearMessages} 
+                        className="flex-1 py-3 bg-red-900 hover:bg-black font-black text-white"
+                      >
+                          Sim, Apagar Tudo
                       </Button>
                   </div>
               </div>

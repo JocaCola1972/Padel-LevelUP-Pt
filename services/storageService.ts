@@ -186,7 +186,7 @@ const defaultState: AppState = {
   customLogo: undefined,
   isTournamentFinished: false,
   passwordResetRequests: [],
-  adminSectionOrder: ['config', 'visual', 'finish', 'report', 'registrations'],
+  adminSectionOrder: ['config', 'visual', 'finish', 'report', 'registrations', 'maintenance'],
   autoOpenTime: '15:00'
 };
 
@@ -559,6 +559,15 @@ export const saveMessage = async (msg: Message): Promise<void> => {
     localStorage.setItem(KEYS.MESSAGES, JSON.stringify(messages));
     notifyListeners();
     if (supabase) await supabase.from('messages').insert(msg);
+};
+
+export const clearAllMessages = async (): Promise<void> => {
+    localStorage.setItem(KEYS.MESSAGES, JSON.stringify([]));
+    notifyListeners();
+    if (supabase) {
+        // Eliminar todas as mensagens que não sejam o ID de sistema básico
+        await supabase.from('messages').delete().neq('id', '00000000-0000-0000-0000-000000000000');
+    }
 };
 
 export const getMessagesForUser = (userId: string): Message[] => {
