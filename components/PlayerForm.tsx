@@ -149,7 +149,7 @@ export const PlayerForm: React.FC<PlayerFormProps> = ({ initialMode, onLogin, on
              <img src={state.customLogo || 'https://raw.githubusercontent.com/fabiolb/padel-levelup/main/logo.png'} alt="Logo" className="w-full h-full object-contain rounded-full" />
           </div>
           <h1 className="text-2xl font-black text-gray-800 mb-1 italic transform -skew-x-6">
-            PADEL <span className="text-padel">LEVELUP</span>
+            Padel <span className="text-padel">LevelUP</span>
           </h1>
           <p className="text-gray-500 font-medium text-xs uppercase tracking-widest">
             {mode === 'login' ? (requirePassword ? `Olá, ${tempPlayer?.name}` : 'Acesso à Liga') : 

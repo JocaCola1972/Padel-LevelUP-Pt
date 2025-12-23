@@ -32,9 +32,9 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onNavigate }) => {
         </div>
         
         <h1 className="text-5xl md:text-6xl font-black italic text-white tracking-tighter drop-shadow-2xl transform -skew-x-6">
-          <span className="text-padel-light">PADEL</span> LEVELUP
+          <span className="text-padel-light">Padel</span> LevelUP
         </h1>
-        <p className="text-white font-bold mt-4 text-xl tracking-widest uppercase bg-black/30 px-4 py-1 rounded-full backdrop-blur-sm">
+        <p className="text-white font-bold mt-4 text-[10px] sm:text-sm md:text-xl tracking-widest uppercase bg-black/30 px-6 py-2 rounded-full backdrop-blur-sm whitespace-nowrap">
           Entra Para Aprender e Fica para Ensinar
         </p>
       </div>
