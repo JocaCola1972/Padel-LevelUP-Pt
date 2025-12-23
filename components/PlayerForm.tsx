@@ -1,7 +1,7 @@
 
 import React, { useState } from 'react';
 import { Player } from '../types';
-import { savePlayer, getPlayerByPhone, generateUUID, requestPasswordReset } from '../services/storageService';
+import { savePlayer, getPlayerByPhone, generateUUID, requestPasswordReset, getAppState } from '../services/storageService';
 import { Button } from './Button';
 
 interface PlayerFormProps {
@@ -11,13 +11,14 @@ interface PlayerFormProps {
 }
 
 export const PlayerForm: React.FC<PlayerFormProps> = ({ initialMode, onLogin, onBack }) => {
+  const state = getAppState();
   const [mode, setMode] = useState<'login' | 'register' | 'recover'>('login');
   
   // Login State
   const [phone, setPhone] = useState('');
   const [password, setPassword] = useState('');
-  const [requirePassword, setRequirePassword] = useState(false); // If true, shows password input
-  const [tempPlayer, setTempPlayer] = useState<Player | null>(null); // Stores player while waiting for password
+  const [requirePassword, setRequirePassword] = useState(false);
+  const [tempPlayer, setTempPlayer] = useState<Player | null>(null);
 
   // Register State
   const [newName, setNewName] = useState('');
@@ -25,7 +26,6 @@ export const PlayerForm: React.FC<PlayerFormProps> = ({ initialMode, onLogin, on
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
 
-  // Mode switching logic (wrappers to clear errors)
   const switchMode = (newMode: 'login' | 'register' | 'recover') => {
       setMode(newMode);
       setError('');
@@ -35,7 +35,6 @@ export const PlayerForm: React.FC<PlayerFormProps> = ({ initialMode, onLogin, on
   };
 
   const attemptLogin = (player: Player) => {
-      // Check Approval
       if (player.isApproved === false) {
           setError('A tua conta ainda está a aguardar aprovação do administrador.');
           setRequirePassword(false);
@@ -49,32 +48,25 @@ export const PlayerForm: React.FC<PlayerFormProps> = ({ initialMode, onLogin, on
     e.preventDefault();
     setError('');
 
-    // Step 1: Check Phone / Username
     if (!requirePassword) {
-        // Special validation: if it's the specific admin username, skip length check
         const isSpecialAdmin = phone === "JocaCola";
-        
         if (!isSpecialAdmin && phone.length < 9) {
-            setError('Número de telemóvel inválido');
+            setError('Utilizador ou telemóvel inválido');
             return;
         }
 
         const existingPlayer = getPlayerByPhone(phone);
         if (existingPlayer) {
-            // Check if player has password
             if (existingPlayer.password) {
                 setTempPlayer(existingPlayer);
                 setRequirePassword(true);
             } else {
-                // No password set, check approval and login
                 attemptLogin(existingPlayer);
             }
         } else {
-            setError('Utilizador não encontrado. Por favor cria a tua ficha primeiro.');
+            setError('Utilizador não encontrado. Cria a tua ficha primeiro.');
         }
-    } 
-    // Step 2: Check Password
-    else {
+    } else {
         if (tempPlayer && tempPlayer.password === password) {
             attemptLogin(tempPlayer);
         } else {
@@ -92,7 +84,7 @@ export const PlayerForm: React.FC<PlayerFormProps> = ({ initialMode, onLogin, on
 
     const existingPlayer = getPlayerByPhone(phone);
     if (existingPlayer) {
-      setError('Este número já está registado. Por favor faz login.');
+      setError('Este número já está registado. Faz login.');
       return;
     }
 
@@ -102,33 +94,27 @@ export const PlayerForm: React.FC<PlayerFormProps> = ({ initialMode, onLogin, on
       phone,
       totalPoints: 0,
       gamesPlayed: 0,
-      participantNumber: 0, // Will be assigned in savePlayer
-      isApproved: false // Explicitly set pending for new registers via form
+      participantNumber: 0,
+      isApproved: false
     };
 
     savePlayer(newPlayer);
-    
-    // After registration, tell user to wait
-    setSuccess('Ficha criada com sucesso! Aguarda a aprovação do administrador para entrar.');
+    setSuccess('Ficha criada! Aguarda a aprovação para entrar.');
     setNewName('');
-    setTimeout(() => {
-        switchMode('login');
-    }, 4000);
+    setTimeout(() => switchMode('login'), 3000);
   };
 
   const handleRecoverSubmit = (e: React.FormEvent) => {
       e.preventDefault();
       setError('');
       setSuccess('');
-
       if (phone.length < 9) {
           setError('Telemóvel inválido.');
           return;
       }
-
       const sent = requestPasswordReset(phone);
       if (sent) {
-          setSuccess('Pedido enviado ao Super Admin. Aguarda notificação.');
+          setSuccess('Pedido enviado ao Super Admin.');
       } else {
           setError('Número não encontrado.');
       }
@@ -142,91 +128,83 @@ export const PlayerForm: React.FC<PlayerFormProps> = ({ initialMode, onLogin, on
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center p-4 animate-fade-in">
-      <div className="bg-white/95 backdrop-blur p-8 rounded-2xl shadow-2xl w-full max-w-md border border-white/40 relative">
+    <div className="min-h-screen flex items-center justify-center p-4 animate-fade-in relative">
+      <div className="auth-bg"></div>
+      <div className="auth-overlay"></div>
+      
+      <div className="bg-white/95 backdrop-blur-md p-8 rounded-2xl shadow-2xl w-full max-w-md border border-white/40 relative">
         <button 
             onClick={() => {
-                if (requirePassword) {
-                    resetLogin();
-                } else if (mode === 'recover') {
-                    switchMode('login');
-                } else {
-                    onBack();
-                }
+                if (requirePassword) resetLogin();
+                else if (mode === 'recover') switchMode('login');
+                else onBack();
             }}
-            className="absolute top-4 left-4 text-gray-400 hover:text-gray-600 transition-colors"
+            className="absolute top-4 left-4 text-gray-400 hover:text-gray-600 transition-colors font-bold"
         >
             ← Voltar
         </button>
 
-        <div className="text-center mb-8 mt-4">
-          <h1 className="text-3xl font-black text-transparent bg-clip-text bg-gradient-to-r from-padel-dark to-padel-blue mb-1 italic transform -skew-x-6">
-            Padel LevelUp
+        <div className="text-center mb-6 mt-4 flex flex-col items-center">
+          <div className="w-24 h-24 bg-white rounded-full flex items-center justify-center shadow-lg mb-4 border-2 border-padel p-1">
+             <img src={state.customLogo || 'https://raw.githubusercontent.com/fabiolb/padel-levelup/main/logo.png'} alt="Logo" className="w-full h-full object-contain rounded-full" />
+          </div>
+          <h1 className="text-2xl font-black text-gray-800 mb-1 italic transform -skew-x-6">
+            PADEL <span className="text-padel">LEVELUP</span>
           </h1>
-          <p className="text-gray-500 font-medium text-sm">
-            {mode === 'login' ? (requirePassword ? `Olá, ${tempPlayer?.name}` : 'Bem-vindo de volta!') : 
-             mode === 'register' ? 'Cria a tua ficha de jogador' : 'Recuperar Password'}
+          <p className="text-gray-500 font-medium text-xs uppercase tracking-widest">
+            {mode === 'login' ? (requirePassword ? `Olá, ${tempPlayer?.name}` : 'Acesso à Liga') : 
+             mode === 'register' ? 'Nova Ficha de Jogador' : 'Recuperar Acesso'}
           </p>
         </div>
 
         {mode === 'login' && (
-          <form onSubmit={handleLoginSubmit} className="space-y-5">
+          <form onSubmit={handleLoginSubmit} className="space-y-4">
             {!requirePassword ? (
-                /* Step 1: Phone / Username */
                 <div>
-                    <label className="block text-sm font-bold text-gray-700 mb-1 ml-1">Telemóvel ou Username</label>
+                    <label className="block text-[10px] font-black text-gray-400 uppercase mb-1 ml-1">Utilizador ou Telemóvel</label>
                     <input
                         type="text"
                         value={phone}
                         onChange={(e) => setPhone(e.target.value)}
                         className="w-full p-4 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-padel focus:border-transparent outline-none transition-all font-mono text-lg"
-                        placeholder="912345678 ou Username"
+                        placeholder="Ex: 912345678"
                         autoFocus
                         required
                     />
                 </div>
             ) : (
-                /* Step 2: Password */
                 <div className="animate-slide-down">
-                    <label className="block text-sm font-bold text-gray-700 mb-1 ml-1">Password</label>
+                    <label className="block text-[10px] font-black text-gray-400 uppercase mb-1 ml-1">Password</label>
                     <input
                         type="password"
                         value={password}
                         onChange={(e) => setPassword(e.target.value)}
                         className="w-full p-4 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-padel focus:border-transparent outline-none transition-all text-lg"
-                        placeholder="Insere a tua password"
+                        placeholder="••••••••"
                         autoFocus
                         required
                     />
                     <div className="mt-2 text-right">
-                        <button type="button" onClick={resetLogin} className="text-xs text-blue-500 hover:underline">
-                            Não sou o {tempPlayer?.name}
+                        <button type="button" onClick={resetLogin} className="text-[10px] text-blue-500 hover:underline font-bold uppercase">
+                            Não sou o {tempPlayer?.name}?
                         </button>
                     </div>
                 </div>
             )}
 
-            {error && <p className="text-red-500 text-sm bg-red-50 p-2 rounded">{error}</p>}
-            {success && <p className="text-green-600 text-sm bg-green-50 p-2 rounded font-bold">{success}</p>}
+            {error && <p className="text-red-500 text-xs bg-red-50 p-3 rounded-lg border border-red-100 font-medium">{error}</p>}
+            {success && <p className="text-green-600 text-xs bg-green-50 p-3 rounded-lg border border-green-100 font-bold">{success}</p>}
             
-            <Button type="submit" className="w-full py-3 text-lg shadow-lg">
-                {requirePassword ? 'Confirmar Password' : 'Entrar'}
+            <Button type="submit" className="w-full py-4 text-lg shadow-lg font-black italic transform hover:scale-105 active:scale-95 transition-transform">
+                {requirePassword ? 'CONFIRMAR' : 'ENTRAR'}
             </Button>
             
             {!requirePassword && (
-                <div className="space-y-2 text-center mt-4">
-                    <p className="text-sm text-gray-500">
-                        Ainda não tens conta? <button type="button" onClick={() => switchMode('register')} className="text-padel-dark font-bold hover:underline">Criar Ficha</button>
+                <div className="space-y-3 text-center mt-6">
+                    <p className="text-xs text-gray-500">
+                        Ainda não tens ficha? <button type="button" onClick={() => switchMode('register')} className="text-padel-dark font-black hover:underline uppercase">Criar Agora</button>
                     </p>
-                    <button type="button" onClick={() => switchMode('recover')} className="text-xs text-gray-400 hover:text-padel hover:underline">
-                        Esqueci-me da Password
-                    </button>
-                </div>
-            )}
-            
-            {requirePassword && (
-                <div className="text-center mt-4">
-                    <button type="button" onClick={() => switchMode('recover')} className="text-xs text-gray-400 hover:text-padel hover:underline">
+                    <button type="button" onClick={() => switchMode('recover')} className="text-[10px] text-gray-400 hover:text-padel font-bold uppercase tracking-tighter">
                         Esqueci-me da Password
                     </button>
                 </div>
@@ -235,67 +213,67 @@ export const PlayerForm: React.FC<PlayerFormProps> = ({ initialMode, onLogin, on
         )}
 
         {mode === 'register' && (
-          <form onSubmit={handleRegisterSubmit} className="space-y-5">
+          <form onSubmit={handleRegisterSubmit} className="space-y-4">
             <div>
-              <label className="block text-sm font-bold text-gray-700 mb-1 ml-1">Nome Completo</label>
+              <label className="block text-[10px] font-black text-gray-400 uppercase mb-1 ml-1">Nome Completo</label>
               <input
                 type="text"
                 value={newName}
                 onChange={(e) => setNewName(e.target.value)}
-                className="w-full p-4 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-padel focus:border-transparent outline-none transition-all"
+                className="w-full p-4 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-padel outline-none transition-all"
                 placeholder="Ex: João Silva"
                 required
               />
             </div>
             <div>
-              <label className="block text-sm font-bold text-gray-700 mb-1 ml-1">Telemóvel</label>
+              <label className="block text-[10px] font-black text-gray-400 uppercase mb-1 ml-1">Telemóvel</label>
               <input
                 type="tel"
                 value={phone}
                 onChange={(e) => setPhone(e.target.value)}
-                className="w-full p-4 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-padel focus:border-transparent outline-none transition-all font-mono text-lg"
+                className="w-full p-4 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-padel outline-none transition-all font-mono text-lg"
                 placeholder="912345678"
                 required
               />
             </div>
-            {error && <p className="text-red-500 text-sm bg-red-50 p-2 rounded">{error}</p>}
-            {success && <p className="text-green-600 text-sm bg-green-50 p-2 rounded font-bold">{success}</p>}
+            {error && <p className="text-red-500 text-xs bg-red-50 p-3 rounded-lg border border-red-100 font-medium">{error}</p>}
+            {success && <p className="text-green-600 text-xs bg-green-50 p-3 rounded-lg border border-green-100 font-bold">{success}</p>}
             
-            <Button type="submit" className="w-full py-3 text-lg shadow-lg">Criar Ficha</Button>
+            <Button type="submit" className="w-full py-4 text-lg font-black italic">CRIAR FICHA</Button>
             
-            <p className="text-center text-sm text-gray-500 mt-4">
-              Já tens conta? <button type="button" onClick={() => switchMode('login')} className="text-padel-dark font-bold hover:underline">Entrar</button>
+            <p className="text-center text-xs text-gray-500 mt-6">
+              Já tens conta? <button type="button" onClick={() => switchMode('login')} className="text-padel-dark font-black hover:underline uppercase">Fazer Login</button>
             </p>
           </form>
         )}
 
         {mode === 'recover' && (
-            <form onSubmit={handleRecoverSubmit} className="space-y-5">
-                <div className="text-center p-2 bg-blue-50 text-blue-800 text-sm rounded-lg mb-4">
-                    Insere o teu telemóvel para pedir uma renovação de password ao Super Admin.
+            <form onSubmit={handleRecoverSubmit} className="space-y-4">
+                <div className="text-center p-3 bg-blue-50 text-blue-800 text-[11px] font-medium rounded-lg mb-4 border border-blue-100">
+                    Insere o teu telemóvel para pedir um reset de password ao administrador.
                 </div>
 
                 <div>
-                    <label className="block text-sm font-bold text-gray-700 mb-1 ml-1">Telemóvel</label>
+                    <label className="block text-[10px] font-black text-gray-400 uppercase mb-1 ml-1">Telemóvel</label>
                     <input
                         type="tel"
                         value={phone}
                         onChange={(e) => setPhone(e.target.value)}
-                        className="w-full p-4 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-padel focus:border-transparent outline-none transition-all font-mono text-lg"
+                        className="w-full p-4 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-padel outline-none transition-all font-mono text-lg"
                         placeholder="912345678"
                         required
                     />
                 </div>
                 
-                {error && <p className="text-red-500 text-sm bg-red-50 p-2 rounded">{error}</p>}
-                {success && <p className="text-green-600 text-sm bg-green-50 p-2 rounded font-bold">{success}</p>}
+                {error && <p className="text-red-500 text-xs bg-red-50 p-3 rounded-lg border border-red-100 font-medium">{error}</p>}
+                {success && <p className="text-green-600 text-xs bg-green-50 p-3 rounded-lg border border-green-100 font-bold">{success}</p>}
 
-                <Button type="submit" className="w-full py-3 text-lg shadow-lg" disabled={!!success}>
-                    Enviar Pedido
+                <Button type="submit" className="w-full py-4 text-lg font-black italic" disabled={!!success}>
+                    PEDIR RESET
                 </Button>
 
-                <p className="text-center text-sm text-gray-500 mt-4">
-                    <button type="button" onClick={() => switchMode('login')} className="text-padel-dark font-bold hover:underline">Voltar ao Login</button>
+                <p className="text-center text-xs text-gray-500 mt-6">
+                    <button type="button" onClick={() => switchMode('login')} className="text-padel-dark font-black hover:underline uppercase">Voltar</button>
                 </p>
             </form>
         )}
