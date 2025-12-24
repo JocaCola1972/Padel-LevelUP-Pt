@@ -1,7 +1,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { AppState, Player, Registration, Shift, MatchRecord, GameResult } from '../types';
-import { getAppState, updateAppState, getRegistrations, getPlayers, removeRegistration, updateRegistration, getMatches, subscribeToChanges, deleteMatchesByDate, deleteRegistrationsByDate } from '../services/storageService';
+import { getAppState, updateAppState, getRegistrations, getPlayers, removeRegistration, updateRegistration, getMatches, subscribeToChanges, deleteMatchesByDate, deleteRegistrationsByDate, addRegistration, generateUUID, savePlayer } from '../services/storageService';
 import { Button } from './Button';
 
 // Declare XLSX for sheetjs
@@ -26,6 +26,15 @@ export const AdminPanel: React.FC = () => {
   const [editRegId, setEditRegId] = useState<string | null>(null);
   const [partnerSearchTerm, setPartnerSearchTerm] = useState('');
   const [selectedPartnerForReg, setSelectedPartnerForReg] = useState<Player | null>(null);
+
+  // New Registration Modal State (Admin)
+  const [isNewRegModalOpen, setIsNewRegModalOpen] = useState(false);
+  const [newRegShift, setNewRegShift] = useState<Shift>(Shift.MORNING_1);
+  const [newRegType, setNewRegType] = useState<'game' | 'training'>('game');
+  const [newRegP1, setNewRegP1] = useState<Player | null>(null);
+  const [newRegP2, setNewRegP2] = useState<Player | null>(null);
+  const [p1Search, setP1Search] = useState('');
+  const [p2Search, setP2Search] = useState('');
 
   // Delete Confirmation State
   const [regToDelete, setRegToDelete] = useState<{ reg: Registration, mainPlayerName: string } | null>(null);
@@ -198,6 +207,11 @@ export const AdminPanel: React.FC = () => {
     return p;
   };
 
+  const handleSetStartingCourt = (regId: string, court: number) => {
+      updateRegistration(regId, { startingCourt: court });
+      showMessageTemporarily();
+  };
+
   // List filtered by the UI filter date (independent from global Sunday date)
   const filteredRegistrations = registrations.filter(r => r.date === regFilterDate);
 
@@ -297,6 +311,29 @@ export const AdminPanel: React.FC = () => {
       }
   };
 
+  const handleAdminNewReg = () => {
+      if (!newRegP1) return;
+      
+      const newReg: Registration = {
+          id: generateUUID(),
+          playerId: newRegP1.id,
+          shift: newRegShift,
+          date: state.nextSundayDate,
+          hasPartner: !!newRegP2,
+          partnerId: newRegP2?.id,
+          partnerName: newRegP2?.name,
+          type: newRegType,
+          isWaitingList: false
+      };
+
+      addRegistration(newReg);
+      alert("Inscrição criada com sucesso pelo Administrador.");
+      setIsNewRegModalOpen(false);
+      setNewRegP1(null);
+      setNewRegP2(null);
+      loadData();
+  };
+
   const renderSection = (key: string) => {
       const order = state.adminSectionOrder || DEFAULT_ORDER;
       const index = order.indexOf(key);
@@ -330,7 +367,7 @@ export const AdminPanel: React.FC = () => {
                 <div key="config" className="bg-white p-6 rounded-xl shadow-lg border-t-4 border-gray-800 animate-fade-in">
                     <div className="flex justify-between items-start mb-6">
                         <h2 className="text-2xl font-bold text-gray-800 flex items-center gap-2">
-                            ⚙️ Gestão de Inscrições
+                            ⚙️ Agendamento de Jogos
                         </h2>
                         {controls}
                     </div>
@@ -343,16 +380,18 @@ export const AdminPanel: React.FC = () => {
                                         {state.registrationsOpen ? 'Abertas (Permite novas inscrições)' : 'Fechadas (Bloqueado)'}
                                     </p>
                                 </div>
-                                <button
-                                    onClick={toggleRegistrations}
-                                    className={`px-6 py-2 rounded-full font-bold transition-colors ${
-                                        state.registrationsOpen 
-                                            ? 'bg-red-500 text-white hover:bg-red-600 shadow-red-200' 
-                                            : 'bg-green-500 text-white hover:bg-green-600 shadow-green-200'
-                                    }`}
-                                >
-                                    {state.registrationsOpen ? 'Fechar Inscrições' : 'Abrir Inscrições'}
-                                </button>
+                                <div className="flex flex-col gap-2">
+                                    <button
+                                        onClick={toggleRegistrations}
+                                        className={`px-6 py-2 rounded-full font-bold transition-colors ${
+                                            state.registrationsOpen 
+                                                ? 'bg-red-500 text-white hover:bg-red-600 shadow-red-200' 
+                                                : 'bg-green-500 text-white hover:bg-green-600 shadow-green-200'
+                                        }`}
+                                    >
+                                        {state.registrationsOpen ? 'Fechar Inscrições' : 'Abrir Inscrições'}
+                                    </button>
+                                </div>
                             </div>
                             
                             <div className="pt-4 border-t border-gray-200">
@@ -591,7 +630,13 @@ export const AdminPanel: React.FC = () => {
                             </h2>
                             {controls}
                         </div>
-                        <div className="flex gap-2 w-full md:w-auto">
+                        <div className="flex flex-wrap gap-2 w-full md:w-auto">
+                            <button
+                                onClick={() => setIsNewRegModalOpen(true)}
+                                className="px-6 py-2 rounded-full font-bold bg-padel-blue text-white hover:bg-blue-800 shadow-sm text-sm"
+                            >
+                                ➕ Nova Inscrição (Admin)
+                            </button>
                             <Button 
                                 onClick={() => setShowRegResetConfirm(true)} 
                                 disabled={filteredRegistrations.length === 0} 
@@ -621,6 +666,10 @@ export const AdminPanel: React.FC = () => {
                     {Object.values(Shift).map(shift => {
                         const shiftRegs = filteredRegistrations.filter(r => r.shift === shift);
                         if (shiftRegs.length === 0) return null;
+                        
+                        const numCourts = state.courtConfig[shift]?.game || 0;
+                        const courtOptions = Array.from({ length: numCourts }, (_, i) => i + 1);
+
                         return (
                             <div key={shift} className="mb-6 last:mb-0">
                                 <h3 className="bg-gray-100 p-2 rounded-t-lg font-bold text-gray-700 text-sm uppercase tracking-wide border-b border-gray-200">
@@ -631,7 +680,7 @@ export const AdminPanel: React.FC = () => {
                                         const player = getPlayerDetails(reg.playerId);
                                         return (
                                             <div key={reg.id} className="p-3 flex justify-between items-center hover:bg-gray-50 transition-colors group">
-                                                <div>
+                                                <div className="flex-1">
                                                     <div className="font-bold text-gray-800 flex items-center gap-2">
                                                         {player ? player.name : 'Desconhecido'}
                                                         {reg.type === 'training' && (
@@ -640,7 +689,7 @@ export const AdminPanel: React.FC = () => {
                                                             </span>
                                                         )}
                                                         <span className="text-xs font-normal text-gray-500">
-                                                            #{player?.participantNumber} • {player?.phone}
+                                                            #{player?.participantNumber}
                                                         </span>
                                                     </div>
                                                     <div className="text-xs text-gray-500">
@@ -654,23 +703,41 @@ export const AdminPanel: React.FC = () => {
                                                         )}
                                                     </div>
                                                 </div>
-                                                <div className="flex gap-2">
-                                                    {!reg.hasPartner && (
-                                                        <button 
-                                                            onClick={() => openPartnerModal(reg.id)}
-                                                            className="text-gray-400 hover:text-blue-600 p-2 rounded-full hover:bg-blue-100 transition-all border border-transparent hover:border-blue-200"
-                                                            title="Adicionar Parceiro"
-                                                        >
-                                                            ➕👤
-                                                        </button>
+                                                
+                                                <div className="flex items-center gap-4">
+                                                    {/* Starting Court Selection */}
+                                                    {!reg.isWaitingList && reg.type === 'game' && courtOptions.length > 0 && (
+                                                        <div className="flex flex-col items-end">
+                                                            <label className="text-[8px] font-bold text-gray-400 uppercase leading-none mb-1">Campo Inicial</label>
+                                                            <select 
+                                                                value={reg.startingCourt || ''} 
+                                                                onChange={(e) => handleSetStartingCourt(reg.id, parseInt(e.target.value))}
+                                                                className="text-xs p-1 border rounded bg-white font-bold text-padel-blue outline-none"
+                                                            >
+                                                                <option value="">N/A</option>
+                                                                {courtOptions.map(n => <option key={n} value={n}>Campo {n}</option>)}
+                                                            </select>
+                                                        </div>
                                                     )}
-                                                    <button
-                                                        onClick={() => initiateDeleteRegistration(reg, player?.name || 'Jogador')}
-                                                        className="text-gray-400 hover:text-red-600 p-2 rounded-full hover:bg-red-100 transition-all border border-transparent hover:border-red-200"
-                                                        title="Cancelar Inscrição"
-                                                    >
-                                                        🗑️
-                                                    </button>
+
+                                                    <div className="flex gap-1">
+                                                        {!reg.hasPartner && (
+                                                            <button 
+                                                                onClick={() => openPartnerModal(reg.id)}
+                                                                className="text-gray-400 hover:text-blue-600 p-2 rounded-full hover:bg-blue-100 transition-all border border-transparent hover:border-blue-200"
+                                                                title="Adicionar Parceiro"
+                                                            >
+                                                                ➕👤
+                                                            </button>
+                                                        )}
+                                                        <button
+                                                            onClick={() => initiateDeleteRegistration(reg, player?.name || 'Jogador')}
+                                                            className="text-gray-400 hover:text-red-600 p-2 rounded-full hover:bg-red-100 transition-all border border-transparent hover:border-red-200"
+                                                            title="Cancelar Inscrição"
+                                                        >
+                                                            🗑️
+                                                        </button>
+                                                    </div>
                                                 </div>
                                             </div>
                                         );
@@ -702,7 +769,101 @@ export const AdminPanel: React.FC = () => {
       {/* Render Dynamic Sections Order */}
       {(state.adminSectionOrder || DEFAULT_ORDER).map(key => renderSection(key))}
 
-      {/* Admin Partner Selection Modal */}
+      {/* Admin New Registration Modal */}
+      {isNewRegModalOpen && (
+          <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4 animate-fade-in">
+              <div className="bg-white rounded-xl shadow-2xl p-6 w-full max-w-md overflow-y-auto max-h-[90vh]">
+                  <h3 className="text-xl font-bold mb-4">Nova Inscrição (Admin)</h3>
+                  <div className="space-y-4">
+                      <div>
+                          <label className="block text-xs font-bold text-gray-500 mb-1">Turno</label>
+                          <select 
+                            value={newRegShift} 
+                            onChange={(e) => setNewRegShift(e.target.value as Shift)}
+                            className="w-full p-2 border rounded"
+                          >
+                              {Object.values(Shift).map(s => <option key={s} value={s}>{s}</option>)}
+                          </select>
+                      </div>
+                      <div>
+                          <label className="block text-xs font-bold text-gray-500 mb-1">Atividade</label>
+                          <div className="flex gap-2">
+                              <button 
+                                onClick={() => setNewRegType('game')}
+                                className={`flex-1 py-2 rounded text-xs font-bold border transition-all ${newRegType === 'game' ? 'bg-padel text-white' : 'bg-gray-100'}`}
+                              >Jogos</button>
+                              <button 
+                                onClick={() => setNewRegType('training')}
+                                className={`flex-1 py-2 rounded text-xs font-bold border transition-all ${newRegType === 'training' ? 'bg-orange-500 text-white' : 'bg-gray-100'}`}
+                              >Treino</button>
+                          </div>
+                      </div>
+
+                      {/* Player 1 Selection */}
+                      <div>
+                          <label className="block text-xs font-bold text-gray-500 mb-1">Jogador 1 (Responsável)</label>
+                          <input 
+                            type="text" 
+                            placeholder="Pesquisar..." 
+                            value={p1Search}
+                            onChange={(e) => setP1Search(e.target.value)}
+                            className="w-full p-2 border rounded text-sm mb-1"
+                          />
+                          {p1Search && !newRegP1 && (
+                              <div className="border rounded bg-gray-50 max-h-32 overflow-y-auto">
+                                  {players.filter(p => p.name.toLowerCase().includes(p1Search.toLowerCase())).slice(0, 5).map(p => (
+                                      <div key={p.id} onClick={() => { setNewRegP1(p); setP1Search(p.name); }} className="p-2 text-sm hover:bg-blue-100 cursor-pointer">
+                                          {p.name} (#{p.participantNumber})
+                                      </div>
+                                  ))}
+                              </div>
+                          )}
+                          {newRegP1 && (
+                              <div className="bg-blue-50 p-2 rounded border border-blue-200 flex justify-between items-center">
+                                  <span className="text-sm font-bold">{newRegP1.name}</span>
+                                  <button onClick={() => { setNewRegP1(null); setP1Search(''); }} className="text-red-500">&times;</button>
+                              </div>
+                          )}
+                      </div>
+
+                      {/* Player 2 Selection (Optional for game) */}
+                      {newRegType === 'game' && (
+                          <div>
+                              <label className="block text-xs font-bold text-gray-500 mb-1">Jogador 2 (Parceiro - Opcional)</label>
+                              <input 
+                                type="text" 
+                                placeholder="Pesquisar..." 
+                                value={p2Search}
+                                onChange={(e) => setP2Search(e.target.value)}
+                                className="w-full p-2 border rounded text-sm mb-1"
+                              />
+                              {p2Search && !newRegP2 && (
+                                  <div className="border rounded bg-gray-50 max-h-32 overflow-y-auto">
+                                      {players.filter(p => p.id !== newRegP1?.id && p.name.toLowerCase().includes(p2Search.toLowerCase())).slice(0, 5).map(p => (
+                                          <div key={p.id} onClick={() => { setNewRegP2(p); setP2Search(p.name); }} className="p-2 text-sm hover:bg-blue-100 cursor-pointer">
+                                              {p.name} (#{p.participantNumber})
+                                          </div>
+                                      ))}
+                                  </div>
+                              )}
+                              {newRegP2 && (
+                                  <div className="bg-green-50 p-2 rounded border border-green-200 flex justify-between items-center">
+                                      <span className="text-sm font-bold">{newRegP2.name}</span>
+                                      <button onClick={() => { setNewRegP2(null); setP2Search(''); }} className="text-red-500">&times;</button>
+                                  </div>
+                              )}
+                          </div>
+                      )}
+                  </div>
+                  <div className="flex gap-2 mt-6">
+                      <Button variant="ghost" onClick={() => setIsNewRegModalOpen(false)} className="flex-1">Cancelar</Button>
+                      <Button onClick={handleAdminNewReg} disabled={!newRegP1} className="flex-1">Gravar Inscrição</Button>
+                  </div>
+              </div>
+          </div>
+      )}
+
+      {/* Admin Partner Selection Modal (from Existing List) */}
       {editRegId && (
           <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4 animate-fade-in">
               <div className="bg-white rounded-xl shadow-2xl p-6 w-full max-w-sm">
@@ -839,7 +1000,7 @@ export const AdminPanel: React.FC = () => {
                             <p>• Os turnos desta data ficarão totalmente vazios.</p>
                             <p>• Esta ação NÃO afeta os resultados já registados, apenas as inscrições.</p>
                         </div>
-                        <p className="text-xs font-black text-red-500 uppercase">Atenção: Esta ação é irreversível!</p>
+                        <p className="text-xs font-black text-red-600 uppercase">Atenção: Esta ação é irreversível!</p>
                       </div>
                   </div>
                   <div className="p-4 bg-gray-50 flex gap-3">

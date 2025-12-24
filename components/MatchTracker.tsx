@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect, useCallback } from 'react';
-import { Player, Shift, GameResult, AppState, MatchRecord } from '../types';
+import { Player, Shift, GameResult, AppState, MatchRecord, Registration } from '../types';
 import { addMatch, getAppState, getMatches, generateUUID, getRegistrations, getPlayers, subscribeToChanges } from '../services/storageService';
 import { Button } from './Button';
 
@@ -25,6 +25,7 @@ export const MatchTracker: React.FC<MatchTrackerProps> = ({ currentUser }) => {
   const [submitted, setSubmitted] = useState(false);
   const [matches, setMatches] = useState<MatchRecord[]>([]);
   const [allPlayers, setAllPlayers] = useState<Player[]>([]);
+  const [registrations, setRegistrations] = useState<Registration[]>([]);
   const [alertConfig, setAlertConfig] = useState<{ message: string; subMessage?: string } | null>(null);
   const [historyDate, setHistoryDate] = useState<string>('');
   const [historyShift, setHistoryShift] = useState<Shift | 'ALL'>('ALL');
@@ -34,14 +35,15 @@ export const MatchTracker: React.FC<MatchTrackerProps> = ({ currentUser }) => {
   const loadData = useCallback(() => {
     const currentMatches = getMatches();
     const currentState = getAppState();
-    const registrations = getRegistrations();
+    const currentRegistrations = getRegistrations();
     const players = getPlayers();
     
     setMatches(currentMatches);
     setAppState(currentState);
     setAllPlayers(players);
+    setRegistrations(currentRegistrations);
 
-    const myRegs = registrations.filter(r => 
+    const myRegs = currentRegistrations.filter(r => 
       (r.playerId === currentUser.id || r.partnerId === currentUser.id) && 
       r.date === currentState.nextSundayDate && 
       (r.type === 'game' || !r.type)
@@ -149,12 +151,25 @@ export const MatchTracker: React.FC<MatchTrackerProps> = ({ currentUser }) => {
               setSelectedGame(limit);
           }
 
-          if (nextGame > 1 && nextGame <= limit) {
+          if (nextGame === 1) {
+              // Verificação de Campo Inicial definido pelo Admin
+              const myReg = registrations.find(r => 
+                  (r.playerId === currentUser.id || r.partnerId === currentUser.id) && 
+                  r.shift === selectedShift && 
+                  r.date === appState.nextSundayDate && 
+                  !r.isWaitingList
+              );
+              if (myReg?.startingCourt) {
+                  setSelectedCourt(myReg.startingCourt);
+              } else {
+                  setSelectedCourt(1);
+              }
+          } else if (nextGame > 1 && nextGame <= limit) {
               const calculatedCourt = calculateNextCourt(selectedShift, nextGame);
               setSelectedCourt(calculatedCourt);
           }
       }
-  }, [selectedShift, matches.length, viewMode]);
+  }, [selectedShift, matches.length, viewMode, registrations, appState.nextSundayDate, currentUser.id]);
 
   const getGamesPlayedCount = (playerId: string, shift: Shift) => {
     const tournamentDate = appState.nextSundayDate;

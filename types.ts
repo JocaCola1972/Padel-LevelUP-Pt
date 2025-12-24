@@ -34,6 +34,7 @@ export interface Registration {
   hasPartner: boolean;
   type?: 'game' | 'training'; // New field: distinguish activity
   isWaitingList?: boolean; // New field: track if user is a substitute
+  startingCourt?: number; // New field: Admin defined starting court
 }
 
 export interface MatchRecord {
