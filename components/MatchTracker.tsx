@@ -439,7 +439,7 @@ export const MatchTracker: React.FC<MatchTrackerProps> = ({ currentUser }) => {
       <div className="p-6">
         <div className="flex justify-between items-start mb-6">
             <div>
-              <h2 className="text-xl font-bold flex items-center gap-2 text-gray-800">🎾 Registar Resultado</h2>
+              <h2 className="text-xl font-bold flex items-center gap-2 text-gray-800">🥎 Registar Resultado</h2>
               <p className="text-xs text-gray-500">Torneio: {appState.nextSundayDate}</p>
             </div>
             <Button variant="secondary" onClick={() => setViewMode('history')} className="text-xs px-3 py-1">Ver Histórico</Button>
@@ -573,7 +573,7 @@ export const MatchTracker: React.FC<MatchTrackerProps> = ({ currentUser }) => {
               <div className="bg-white rounded-2xl shadow-2xl w-full max-sm overflow-hidden border-t-8 border-padel">
                   <div className="p-6 text-center">
                       <div className="w-16 h-16 bg-padel/10 text-padel-dark rounded-full flex items-center justify-center mx-auto mb-4 text-3xl">
-                          🎾
+                          🥎
                       </div>
                       <h3 className="text-xl font-black text-padel-dark mb-2 tracking-tight">Mensagem do LevelUP</h3>
                       <div className="space-y-3">

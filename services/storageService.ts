@@ -58,7 +58,8 @@ export const initCloudSync = async () => {
     }
 };
 
-const fetchAllData = async () => {
+// Fixed error: Module '"./services/storageService"' declares 'fetchAllData' locally, but it is not exported.
+export const fetchAllData = async () => {
     if (!supabase) return;
 
     try {
