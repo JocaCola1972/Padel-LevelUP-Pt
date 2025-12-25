@@ -1,7 +1,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { AppState, Player, Registration, Shift } from '../types';
-import { getAppState, addRegistration, getRegistrations, removeRegistration, getPlayers, savePlayer, updateRegistration, generateUUID, subscribeToChanges } from '../services/storageService';
+import { getAppState, addRegistration, getRegistrations, removeRegistration, getPlayers, savePlayer, updateRegistration, generateUUID, subscribeToChanges, updateAppState } from '../services/storageService';
 import { Button } from './Button';
 
 interface RegistrationPanelProps {
@@ -23,7 +23,6 @@ export const RegistrationPanel: React.FC<RegistrationPanelProps> = ({ currentUse
   const [selectedPartnerId, setSelectedPartnerId] = useState('');
   const [selectedPartnerName, setSelectedPartnerName] = useState('');
   const [selectedPartnerPhoto, setSelectedPartnerPhoto] = useState<string | undefined>(undefined);
-  const [editingRegId, setEditingRegId] = useState<string | null>(null);
   const [cancelTarget, setCancelTarget] = useState<{ type: 'single', reg: Registration } | null>(null);
   const [showCancelSplitModal, setShowCancelSplitModal] = useState(false);
   const [waitingListPrompt, setWaitingListPrompt] = useState<{ shift: Shift, type: 'game' | 'training', asPartner: boolean } | null>(null);
@@ -32,14 +31,42 @@ export const RegistrationPanel: React.FC<RegistrationPanelProps> = ({ currentUse
   const [allPlayers, setAllPlayers] = useState<Player[]>([]);
   const [successMsg, setSuccessMsg] = useState('');
 
+  // Added: filteredCandidates logic to fix compilation error and provide partner search results
+  const filteredCandidates = allPlayers.filter(p => 
+      p.name.toLowerCase().includes(partnerSearchTerm.toLowerCase()) || 
+      p.phone.includes(partnerSearchTerm)
+  ).slice(0, 5);
+
+  const checkAutoOpen = (state: AppState) => {
+    if (state.registrationsOpen) return;
+    if (!state.autoOpenTime) return;
+
+    const now = new Date();
+    const day = now.getDay(); // 0 = Domingo
+    
+    if (day === 0) {
+      const [hours, minutes] = state.autoOpenTime.split(':').map(Number);
+      const openTime = new Date();
+      openTime.setHours(hours, minutes, 0, 0);
+
+      if (now >= openTime) {
+        updateAppState({ registrationsOpen: true });
+      }
+    }
+  };
+
   const loadData = () => {
     const currentState = getAppState();
+    checkAutoOpen(currentState);
     setAppState(currentState);
+    
     const allRegs = getRegistrations();
     const playersList = getPlayers();
     setAllPlayers(playersList.filter(p => p.id !== currentUser.id));
+    
     const regsForDate = allRegs.filter(r => r.date === currentState.nextSundayDate);
     setAllTournamentRegistrations(regsForDate);
+    
     const activeRegs = regsForDate.filter(r => r.playerId === currentUser.id || r.partnerId === currentUser.id);
     setMyRegistrations([...activeRegs].reverse());
   };
@@ -47,11 +74,19 @@ export const RegistrationPanel: React.FC<RegistrationPanelProps> = ({ currentUse
   useEffect(() => {
     loadData();
     const unsubscribe = subscribeToChanges(loadData);
-    return () => unsubscribe();
+    const interval = setInterval(loadData, 30000); // Check every 30s for auto-open
+    return () => {
+        unsubscribe();
+        clearInterval(interval);
+    };
   }, [currentUser.id]);
 
   const handleRegister = async (e?: React.FormEvent, forceWaitingList = false) => {
     if (e) e.preventDefault();
+    if (!appState.registrationsOpen) {
+        alert("As inscrições estão fechadas de momento.");
+        return;
+    }
     if (!selectedShift) return;
 
     const myConflict = allTournamentRegistrations.find(r => 
@@ -116,10 +151,6 @@ export const RegistrationPanel: React.FC<RegistrationPanelProps> = ({ currentUse
       setSelectedPartnerName('');
   };
 
-  const filteredCandidates = allPlayers.filter(p => 
-    p.name.toLowerCase().includes(partnerSearchTerm.toLowerCase()) || p.phone.includes(partnerSearchTerm)
-  ).slice(0, 5);
-
   const handleSelectPartner = (player: Player) => {
       setSelectedPartnerId(player.id);
       setSelectedPartnerName(player.name);
@@ -150,12 +181,6 @@ export const RegistrationPanel: React.FC<RegistrationPanelProps> = ({ currentUse
       setPartnerSearchStatus('found');
   };
 
-  const initiateCancelSingle = (reg: Registration, e: React.MouseEvent) => {
-    e.preventDefault();
-    setCancelTarget({ type: 'single', reg });
-    if (reg.hasPartner) setShowCancelSplitModal(true);
-  };
-
   const handleCancelOnlyMe = async () => {
       if (!cancelTarget) return;
       const reg = cancelTarget.reg;
@@ -180,6 +205,67 @@ export const RegistrationPanel: React.FC<RegistrationPanelProps> = ({ currentUse
       loadData();
       setTimeout(() => setSuccessMsg(''), 3000);
   };
+
+  // --- CLOSED STATE UI ---
+  if (!appState.registrationsOpen) {
+      return (
+          <div className="space-y-6">
+              <div className="bg-white p-8 rounded-2xl shadow-xl border-t-8 border-gray-300 text-center animate-fade-in">
+                  <div className="w-20 h-20 bg-gray-100 text-gray-400 rounded-full flex items-center justify-center mx-auto mb-6 text-4xl">
+                      🔒
+                  </div>
+                  <h2 className="text-2xl font-black text-gray-800 italic uppercase transform -skew-x-6 mb-2">
+                      Inscrições <span className="text-gray-400">Fechadas</span>
+                  </h2>
+                  <div className="bg-blue-50 p-4 rounded-xl border border-blue-100 mb-6">
+                      <p className="text-sm text-blue-800 font-bold leading-relaxed">
+                          As inscrições para o próximo evento abrem automaticamente todos os Domingos às <span className="text-padel-dark text-lg font-black">{appState.autoOpenTime || '15:00'}h</span>.
+                      </p>
+                  </div>
+                  <p className="text-xs text-gray-500 italic">
+                      Excecionalmente, a organização poderá abrir as inscrições noutra hora definida. Fica atento às notificações!
+                  </p>
+              </div>
+
+              {/* Still show my existing registrations even if panel is closed for new ones */}
+              {myRegistrations.length > 0 && (
+                <div className="bg-white/80 backdrop-blur p-4 rounded-xl border border-white/40 shadow-sm">
+                    <h3 className="font-bold text-gray-700 mb-3 text-sm flex items-center gap-2">
+                        <span>✅ As tuas Inscrições</span>
+                        <span className="text-[10px] bg-padel/20 text-padel-dark px-2 py-0.5 rounded-full">Ativas</span>
+                    </h3>
+                    <ul className="space-y-2">
+                        {myRegistrations.map(r => (
+                            <li key={r.id} className="p-3 bg-white rounded-lg shadow-sm border border-gray-100 flex justify-between items-center text-sm">
+                                <div className="flex flex-col">
+                                    <span className="font-bold text-gray-800">{r.shift}</span>
+                                    <span className="text-[10px] text-gray-500 uppercase font-black">{r.type === 'training' ? '🎓 Treino' : '🎾 Jogo'}</span>
+                                </div>
+                                <button onClick={(e) => { e.preventDefault(); setCancelTarget({ type: 'single', reg: r }); if (r.hasPartner) setShowCancelSplitModal(true); else handleCancelEntireDupla(); }} className="text-red-400 text-xs font-bold hover:text-red-600 transition-colors">
+                                    Desistir
+                                </button>
+                            </li>
+                        ))}
+                    </ul>
+                </div>
+              )}
+
+              {showCancelSplitModal && (
+                <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4 backdrop-blur-sm">
+                    <div className="bg-white p-6 rounded-2xl max-w-sm w-full shadow-2xl border-t-8 border-padel">
+                        <h3 className="font-black text-gray-800 mb-2 uppercase italic">Cancelar Inscrição</h3>
+                        <p className="text-sm text-gray-500 mb-6">Como tens um parceiro associado, como desejas proceder?</p>
+                        <div className="space-y-3">
+                            <Button onClick={handleCancelOnlyMe} className="w-full py-3">Remover apenas EU</Button>
+                            <Button onClick={handleCancelEntireDupla} variant="danger" className="w-full py-3">Remover AMBOS (Dupla)</Button>
+                            <Button onClick={() => setShowCancelSplitModal(false)} variant="ghost" className="w-full">Voltar</Button>
+                        </div>
+                    </div>
+                </div>
+              )}
+          </div>
+      );
+  }
 
   return (
     <div className="space-y-8">
@@ -300,7 +386,7 @@ export const RegistrationPanel: React.FC<RegistrationPanelProps> = ({ currentUse
                 {myRegistrations.map(r => (
                     <li key={r.id} className="p-2 bg-white rounded shadow flex justify-between items-center text-sm">
                         <span>{r.shift} ({r.type === 'training' ? '🎓' : '🎾'})</span>
-                        <button onClick={(e) => initiateCancelSingle(r, e)} className="text-red-500">Desistir</button>
+                        <button onClick={(e) => { e.preventDefault(); setCancelTarget({ type: 'single', reg: r }); if (r.hasPartner) setShowCancelSplitModal(true); else handleCancelEntireDupla(); }} className="text-red-500">Desistir</button>
                     </li>
                 ))}
             </ul>
