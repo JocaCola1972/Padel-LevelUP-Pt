@@ -698,40 +698,37 @@ export const AdminPanel: React.FC = () => {
 
                                         return (
                                             <div key={reg.id} className="p-3 flex justify-between items-center hover:bg-gray-50 transition-colors group">
-                                                <div className="flex-1">
-                                                    <div className="font-bold text-gray-800 flex items-center gap-2">
-                                                        {player ? player.name : 'Desconhecido'}
-                                                        {reg.type === 'training' && (
-                                                            <span className="text-[9px] bg-orange-100 text-orange-800 px-1 rounded uppercase font-bold tracking-wide">
-                                                                Treino
-                                                            </span>
-                                                        )}
-                                                        <span className="text-xs font-normal text-gray-500">
+                                                <div className="flex-1 min-w-0">
+                                                    <div className="font-bold text-gray-800 flex items-center gap-2 flex-wrap">
+                                                        <span>{player?.name || 'Desconhecido'}</span>
+                                                        {reg.hasPartner && <span className="text-gray-400 font-medium">&</span>}
+                                                        {reg.hasPartner && <span>{reg.partnerName}</span>}
+                                                        <span className="text-[10px] font-normal text-gray-400 font-mono">
                                                             #{player?.participantNumber}
                                                         </span>
-                                                        {/* Individual Points Display */}
-                                                        <span className="text-[10px] bg-blue-50 text-blue-600 px-1.5 py-0.5 rounded-full font-black">
-                                                            {p1Points} pts
-                                                        </span>
                                                     </div>
-                                                    <div className="text-xs text-gray-500 flex items-center gap-2">
+                                                    
+                                                    <div className="flex items-center gap-3 mt-1">
+                                                        <div className="flex items-center gap-1 bg-gray-50 px-2 py-0.5 rounded border border-gray-100">
+                                                            <span className="text-[9px] font-bold text-gray-400 uppercase">Pts:</span>
+                                                            <span className="text-[10px] font-black text-blue-600">{p1Points}</span>
+                                                            {reg.hasPartner && <span className="text-gray-300 mx-0.5">+</span>}
+                                                            {reg.hasPartner && <span className="text-[10px] font-black text-gray-600">{p2Points}</span>}
+                                                        </div>
+
                                                         {reg.hasPartner ? (
-                                                            <>
-                                                                <span className="flex items-center gap-1">
-                                                                    <span>Dupla com:</span>
-                                                                    <span className="font-semibold">{reg.partnerName}</span>
-                                                                    {partner && (
-                                                                        <span className="text-[10px] text-gray-400 font-bold">
-                                                                            ({p2Points} pts)
-                                                                        </span>
-                                                                    )}
-                                                                </span>
-                                                                <span className="bg-padel text-white text-[9px] px-2 py-0.5 rounded-full font-black ml-1">
-                                                                    ∑ {totalPoints} pts
-                                                                </span>
-                                                            </>
+                                                            <div className="flex items-center gap-1 bg-padel/10 px-2 py-0.5 rounded border border-padel/20">
+                                                                <span className="text-[9px] font-black text-padel-dark uppercase tracking-tight">Total:</span>
+                                                                <span className="text-[11px] font-black text-padel-dark">{totalPoints}</span>
+                                                            </div>
                                                         ) : (
-                                                            <span className="italic">Individual</span>
+                                                            <span className="text-[9px] text-gray-400 italic">Individual</span>
+                                                        )}
+
+                                                        {reg.type === 'training' && (
+                                                            <span className="text-[9px] bg-orange-100 text-orange-800 px-1.5 rounded uppercase font-bold tracking-wide">
+                                                                Treino
+                                                            </span>
                                                         )}
                                                     </div>
                                                 </div>
