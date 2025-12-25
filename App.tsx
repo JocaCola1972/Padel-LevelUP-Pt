@@ -107,8 +107,20 @@ const App: React.FC = () => {
               <button onClick={() => setIsNotificationsOpen(true)} className="relative p-2 text-2xl">🔔
                   {unreadMessagesCount > 0 && <span className="absolute top-0 right-0 bg-red-500 text-white text-[9px] font-bold px-1.5 py-0.5 rounded-full animate-bounce">{unreadMessagesCount}</span>}
               </button>
-              <div onClick={() => setIsProfileOpen(true)} className="w-10 h-10 rounded-full border-2 border-padel overflow-hidden bg-gray-100 cursor-pointer">
-                  {currentUser.photoUrl ? <img src={currentUser.photoUrl} className="w-full h-full object-cover" /> : <div className="w-full h-full flex items-center justify-center text-gray-400">👤</div>}
+              <div 
+                  onClick={() => setIsProfileOpen(true)} 
+                  className="flex items-center gap-2 bg-gray-50 hover:bg-gray-100 transition-colors py-1 pl-3 pr-1 rounded-full border border-gray-200 cursor-pointer"
+              >
+                  <span className="text-[10px] font-black uppercase text-gray-600 truncate max-w-[80px]">
+                      {currentUser.name.split(' ')[0]}
+                  </span>
+                  <div className="w-8 h-8 rounded-full border-2 border-padel overflow-hidden bg-white shrink-0">
+                      {currentUser.photoUrl ? (
+                          <img src={currentUser.photoUrl} className="w-full h-full object-cover" alt="" />
+                      ) : (
+                          <div className="w-full h-full flex items-center justify-center text-gray-300 text-xs">👤</div>
+                      )}
+                  </div>
               </div>
           </div>
         </div>

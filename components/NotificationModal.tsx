@@ -23,7 +23,8 @@ export const NotificationModal: React.FC<NotificationModalProps> = ({ currentUse
         // Mark all displayed messages as read after a short delay
         const timer = setTimeout(() => {
             const msgs = getMessagesForUser(currentUser.id);
-            msgs.forEach(m => markMessageAsRead(m.id, currentUser.id));
+            // Fix: markMessageAsRead only accepts 1 argument
+            msgs.forEach(m => markMessageAsRead(m.id));
         }, 1000);
 
         return () => clearTimeout(timer);
@@ -31,7 +32,8 @@ export const NotificationModal: React.FC<NotificationModalProps> = ({ currentUse
 
     const handleDelete = async (messageId: string) => {
         if (window.confirm('Desejas apagar esta mensagem?')) {
-            await deleteMessageForUser(messageId, currentUser.id);
+            // Fix: deleteMessageForUser only accepts 1 argument
+            await deleteMessageForUser(messageId);
             loadMessages();
         }
     };

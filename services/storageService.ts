@@ -11,14 +11,12 @@ const KEYS = {
   MESSAGES: 'padel_messages'
 };
 
-// --- CONFIGURAÇÃO SUPABASE ---
 const SUPABASE_URL = "https://bjiyrvayymwojubafray.supabase.co";
 const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImJqaXlydmF5eW13b2p1YmFmcmF5Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjU2NjQ3ODMsImV4cCI6MjA4MTI0MDc4M30.f1iIInDubbIm7rR5-gm6bEybTU3etOW5s1waX4P8hEo";
 
 let supabase: SupabaseClient | null = null;
 let isConnected = false;
 
-// --- EVENT BUS FOR REALTIME UPDATES ---
 type DataChangeListener = () => void;
 const listeners: DataChangeListener[] = [];
 
@@ -41,29 +39,20 @@ export const initCloudSync = async () => {
         if (!supabase) {
             supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
         }
-        
-        console.log("⚡ Iniciando Sincronização em Tempo Real...");
-        
-        // 1. Fetch inicial de dados para garantir base fresca
         await fetchAllData();
-        
-        // 2. Ativar Subscrições Realtime em todas as tabelas
         enableRealtimeSubscriptions();
-        
         isConnected = true;
-        notifyListeners(); 
+        notifyListeners();
     } catch (e) {
-        console.error("Erro no Sync Supabase:", e);
+        console.error("Erro ao conectar à nuvem:", e);
         isConnected = false;
     }
 };
 
-// Fixed error: Module '"./services/storageService"' declares 'fetchAllData' locally, but it is not exported.
 export const fetchAllData = async () => {
     if (!supabase) return;
-
     try {
-        const [playersRes, regsRes, matchesRes, messagesRes, settingsRes] = await Promise.all([
+        const [p, r, m, msg, s] = await Promise.all([
             supabase.from('players').select('*'),
             supabase.from('registrations').select('*'),
             supabase.from('matches').select('*'),
@@ -71,106 +60,79 @@ export const fetchAllData = async () => {
             supabase.from('settings').select('*')
         ]);
 
-        if (playersRes.data) localStorage.setItem(KEYS.PLAYERS, JSON.stringify(playersRes.data));
-        if (regsRes.data) localStorage.setItem(KEYS.REGISTRATIONS, JSON.stringify(regsRes.data));
-        if (matchesRes.data) localStorage.setItem(KEYS.MATCHES, JSON.stringify(matchesRes.data));
-        if (messagesRes.data) localStorage.setItem(KEYS.MESSAGES, JSON.stringify(messagesRes.data));
+        if (p.data) mergeAndSave(KEYS.PLAYERS, p.data);
+        if (r.data) mergeAndSave(KEYS.REGISTRATIONS, r.data);
+        if (m.data) mergeAndSave(KEYS.MATCHES, m.data);
+        if (msg.data) mergeAndSave(KEYS.MESSAGES, msg.data);
         
-        if (settingsRes.data) {
-            settingsRes.data.forEach((row: any) => {
+        if (s.data) {
+            s.data.forEach((row: any) => {
                 if (row.key === 'appState') localStorage.setItem(KEYS.STATE, JSON.stringify(row.value));
                 if (row.key === 'masters') localStorage.setItem(KEYS.MASTERS, JSON.stringify(row.value));
             });
         }
-        
-        ensureAdminExists();
+        notifyListeners();
     } catch (err) {
-        console.error("Erro no Fetch Inicial:", err);
+        console.error("Erro ao sincronizar dados:", err);
     }
+};
+
+const mergeAndSave = (key: string, cloudData: any[]) => {
+    const localData = JSON.parse(localStorage.getItem(key) || '[]');
+    // Criamos um mapa para evitar duplicados, priorizando dados da nuvem mas mantendo novos locais
+    const merged = [...cloudData];
+    localData.forEach((l: any) => {
+        if (!merged.find(c => c.id === l.id)) {
+            merged.push(l);
+        }
+    });
+    localStorage.setItem(key, JSON.stringify(merged));
 };
 
 const enableRealtimeSubscriptions = () => {
     if (!supabase) return;
-
-    // Remove canais antigos para evitar duplicados
     supabase.removeAllChannels();
-
-    // Subscreve a todas as tabelas públicas
-    supabase.channel('system-wide-sync')
-        .on(
-            'postgres_changes',
-            { event: '*', schema: 'public' },
-            (payload) => {
-                console.log('Dados recebidos da Nuvem:', payload.table, payload.eventType);
-                handleRealtimeUpdate(payload);
-            }
-        )
-        .subscribe((status) => {
-            console.log("Estado da Ligação em Tempo Real:", status);
-        });
+    supabase.channel('global-sync')
+        .on('postgres_changes', { event: '*', schema: 'public' }, handleRealtimeUpdate)
+        .subscribe();
 };
 
 const handleRealtimeUpdate = (payload: any) => {
     const { table, eventType, new: newRecord, old: oldRecord } = payload;
     const tableName = table.toLowerCase();
+    let key = '';
 
-    // 1. Sincronização de Configurações e Estado da App
     if (tableName === 'settings') {
-        const record = newRecord || oldRecord;
-        if (!record) return;
-        const key = record.key;
-        const storageKey = key === 'appState' ? KEYS.STATE : (key === 'masters' ? KEYS.MASTERS : null);
-        if (storageKey && newRecord) {
-            localStorage.setItem(storageKey, JSON.stringify(newRecord.value));
-            console.log(`Estado [${key}] atualizado globalmente.`);
+        if (newRecord) {
+            const sKey = newRecord.key === 'appState' ? KEYS.STATE : (newRecord.key === 'masters' ? KEYS.MASTERS : null);
+            if (sKey) localStorage.setItem(sKey, JSON.stringify(newRecord.value));
         }
         notifyListeners();
         return;
     }
 
-    // 2. Sincronização de Tabelas de Dados
-    let storageKey = '';
-    if (tableName === 'players') storageKey = KEYS.PLAYERS;
-    else if (tableName === 'registrations') storageKey = KEYS.REGISTRATIONS;
-    else if (tableName === 'matches') storageKey = KEYS.MATCHES;
-    else if (tableName === 'messages') storageKey = KEYS.MESSAGES;
-    else return;
+    switch(tableName) {
+        case 'players': key = KEYS.PLAYERS; break;
+        case 'registrations': key = KEYS.REGISTRATIONS; break;
+        case 'matches': key = KEYS.MATCHES; break;
+        case 'messages': key = KEYS.MESSAGES; break;
+        default: return;
+    }
 
-    const currentDataStr = localStorage.getItem(storageKey);
-    let currentData: any[] = currentDataStr ? JSON.parse(currentDataStr) : [];
-
-    if (eventType === 'INSERT') {
-        if (!currentData.find(item => item.id === newRecord.id)) {
-            currentData.push(newRecord);
-        }
-    } else if (eventType === 'UPDATE') {
-        const idx = currentData.findIndex(item => item.id === newRecord.id);
-        if (idx >= 0) {
-            currentData[idx] = newRecord;
-        } else {
-            // Caso o update chegue mas não tínhamos o registo (gap de rede), inserimos
-            currentData.push(newRecord);
-        }
+    let data = JSON.parse(localStorage.getItem(key) || '[]');
+    if (eventType === 'INSERT' || eventType === 'UPDATE') {
+        const idx = data.findIndex((i: any) => i.id === newRecord.id);
+        if (idx >= 0) data[idx] = newRecord;
+        else data.push(newRecord);
     } else if (eventType === 'DELETE') {
-        currentData = currentData.filter(item => item.id !== oldRecord.id);
+        data = data.filter((i: any) => i.id !== oldRecord.id);
     }
-
-    localStorage.setItem(storageKey, JSON.stringify(currentData));
-    notifyListeners(); // Notifica UI imediatamente
+    localStorage.setItem(key, JSON.stringify(data));
+    notifyListeners();
 };
 
-// Utility for ID generation
-export const generateUUID = () => {
-    if (typeof crypto !== 'undefined' && crypto.randomUUID) {
-        return crypto.randomUUID();
-    }
-    return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
-        var r = Math.random() * 16 | 0, v = c == 'x' ? r : (r & 0x3 | 0x8);
-        return v.toString(16);
-    });
-};
+export const generateUUID = () => crypto.randomUUID?.() || Math.random().toString(36).substring(2);
 
-// Initial State
 const defaultState: AppState = {
   registrationsOpen: false,
   courtConfig: {
@@ -179,244 +141,48 @@ const defaultState: AppState = {
     [Shift.MORNING_3]: { game: 9, training: 0 },
   },
   nextSundayDate: new Date().toISOString().split('T')[0], 
-  gamesPerShift: {
-    [Shift.MORNING_1]: 4,
-    [Shift.MORNING_2]: 4,
-    [Shift.MORNING_3]: 5
-  },
-  customLogo: undefined,
-  isTournamentFinished: false,
+  gamesPerShift: { [Shift.MORNING_1]: 4, [Shift.MORNING_2]: 4, [Shift.MORNING_3]: 5 },
   passwordResetRequests: [],
   adminSectionOrder: ['config', 'courts', 'report', 'registrations'],
   toolsSectionOrder: ['visual', 'maintenance'],
   autoOpenTime: '15:00'
 };
 
-const defaultMastersState: MastersState = {
-  teams: [],
-  matches: [],
-  currentPhase: 1,
-  pool: []
-};
-
-// --- DATA ACCESS LAYER ---
-
-const ensureAdminExists = () => {
-    const data = localStorage.getItem(KEYS.PLAYERS);
-    let players: Player[] = data ? JSON.parse(data) : [];
-    
-    const adminUsername = "JocaCola";
-    const adminIndex = players.findIndex(p => p.phone === adminUsername); 
-
-    let needsSync = false;
-    let adminPlayer: Player | null = null;
-
-    if (adminIndex === -1) {
-        adminPlayer = {
-            id: generateUUID(),
-            name: "JocaCola",
-            phone: adminUsername, 
-            password: "JocaADMINLuP25",
-            role: 'super_admin',
-            isApproved: true,
-            totalPoints: 0,
-            gamesPlayed: 0,
-            participantNumber: 0, 
-            photoUrl: undefined
-        };
-        players.push(adminPlayer);
-        needsSync = true;
-    } else {
-        if (players[adminIndex].password !== "JocaADMINLuP25" || players[adminIndex].role !== 'super_admin') {
-            players[adminIndex].password = "JocaADMINLuP25";
-            players[adminIndex].role = "super_admin";
-            players[adminIndex].isApproved = true;
-            adminPlayer = players[adminIndex];
-            needsSync = true;
-        }
-    }
-
-    if (needsSync && adminPlayer && supabase) {
-        localStorage.setItem(KEYS.PLAYERS, JSON.stringify(players));
-        supabase.from('players').upsert(adminPlayer).then(({ error }) => {
-            if (error) console.error("Error seeding admin:", error);
-        });
-    }
-}
-
-export const getPlayers = (): Player[] => {
-  const data = localStorage.getItem(KEYS.PLAYERS);
-  return data ? JSON.parse(data) : [];
-};
-
+export const getPlayers = (): Player[] => JSON.parse(localStorage.getItem(KEYS.PLAYERS) || '[]');
 export const savePlayer = async (player: Player): Promise<void> => {
-  const players = getPlayers();
-  let index = players.findIndex(p => p.id === player.id);
-  if (index === -1) {
-      index = players.findIndex(p => p.phone === player.phone);
-  }
-  
-  let finalPlayer = { ...player };
-
-  if (index >= 0) {
-    if (!players[index].participantNumber) {
-        const maxNum = players.reduce((max, p) => Math.max(max, p.participantNumber || 0), 0);
-        players[index].participantNumber = maxNum + 1;
-    }
-    const currentRole = players[index].role || 'user';
-    const currentApproved = players[index].isApproved ?? true;
-
-    finalPlayer = { 
-        ...players[index], 
-        ...player, 
-        participantNumber: players[index].participantNumber, 
-        role: player.role || currentRole,
-        isApproved: player.isApproved !== undefined ? player.isApproved : currentApproved
-    };
-    players[index] = finalPlayer;
-  } else {
-    const maxNum = players.reduce((max, p) => Math.max(max, p.participantNumber || 0), 0);
-    finalPlayer.participantNumber = maxNum + 1;
-    finalPlayer.role = 'user';
-    if (finalPlayer.isApproved === undefined) {
-            finalPlayer.isApproved = false;
-    }
-    if (!finalPlayer.id) finalPlayer.id = generateUUID();
-    players.push(finalPlayer);
-  }
-  
-  localStorage.setItem(KEYS.PLAYERS, JSON.stringify(players));
-  notifyListeners();
-  
-  if (supabase) {
-      await supabase.from('players').upsert(finalPlayer);
-  }
-};
-
-export const approvePlayer = async (playerId: string): Promise<void> => {
     const players = getPlayers();
-    const index = players.findIndex(p => p.id === playerId);
-    if (index >= 0) {
-        players[index].isApproved = true;
-        localStorage.setItem(KEYS.PLAYERS, JSON.stringify(players));
-        notifyListeners();
-        if (supabase) await supabase.from('players').update({ isApproved: true }).eq('id', playerId);
-    }
-};
-
-export const approveAllPendingPlayers = async (): Promise<void> => {
-    const players = getPlayers();
-    const pendingIds: string[] = [];
-    
-    players.forEach(p => {
-        if (p.isApproved === false) {
-            p.isApproved = true;
-            pendingIds.push(p.id);
-        }
-    });
-    
-    if (pendingIds.length === 0) return;
-
+    const idx = players.findIndex(p => p.id === player.id || p.phone === player.phone);
+    if (idx >= 0) players[idx] = { ...players[idx], ...player };
+    else players.push(player);
     localStorage.setItem(KEYS.PLAYERS, JSON.stringify(players));
     notifyListeners();
-    
-    if (supabase) {
-        await supabase.from('players').update({ isApproved: true }).in('id', pendingIds);
-    }
+    if (supabase) await supabase.from('players').upsert(player);
 };
 
-export const removePlayer = async (playerId: string): Promise<void> => {
-    let players = getPlayers();
-    players = players.filter(p => p.id !== playerId);
-    localStorage.setItem(KEYS.PLAYERS, JSON.stringify(players));
-    
-    let regs = getRegistrations();
-    regs = regs.filter(r => r.playerId !== playerId && r.partnerId !== playerId);
-    localStorage.setItem(KEYS.REGISTRATIONS, JSON.stringify(regs));
-    
-    notifyListeners();
-
-    if (supabase) {
-        await supabase.from('players').delete().eq('id', playerId);
-    }
-};
-
-export const savePlayersBulk = (newPlayers: Partial<Player>[]): { added: number, updated: number } => {
-    const players = getPlayers();
-    let added = 0;
-    let updated = 0;
-    let maxNum = players.reduce((max, p) => Math.max(max, p.participantNumber || 0), 0);
-    
-    const playersToUpsert: Player[] = [];
-
-    newPlayers.forEach(np => {
-        if (!np.phone || !np.name) return;
-
-        const cleanPhone = np.phone.replace(/\s+/g, '');
-        const index = players.findIndex(p => p.phone === cleanPhone);
-
-        if (index >= 0) {
-            if (np.name && players[index].name !== np.name) {
-                players[index].name = np.name;
-                updated++;
-                playersToUpsert.push(players[index]);
-            }
-        } else {
-            maxNum++;
-            const newP: Player = {
-                id: generateUUID(),
-                name: np.name,
-                phone: cleanPhone,
-                totalPoints: 0,
-                gamesPlayed: 0,
-                participantNumber: maxNum,
-                role: 'user', 
-                isApproved: true
-            };
-            players.push(newP);
-            playersToUpsert.push(newP);
-            added++;
-        }
-    });
-
-    localStorage.setItem(KEYS.PLAYERS, JSON.stringify(players));
-    notifyListeners();
-    
-    if (supabase && playersToUpsert.length > 0) {
-        supabase.from('players').upsert(playersToUpsert).then(({error}) => {
-             if(error) console.error("Bulk save error", error);
-        });
-    }
-    
-    return { added, updated };
-};
-
-export const getPlayerByPhone = (phone: string): Player | undefined => {
-  return getPlayers().find(p => p.phone === phone);
-};
-
-// --- Registrations ---
-
-export const getRegistrations = (): Registration[] => {
-  const data = localStorage.getItem(KEYS.REGISTRATIONS);
-  return data ? JSON.parse(data) : [];
-};
-
+export const getRegistrations = (): Registration[] => JSON.parse(localStorage.getItem(KEYS.REGISTRATIONS) || '[]');
 export const addRegistration = async (reg: Registration): Promise<void> => {
-  const regs = getRegistrations();
-  if (!regs.find(r => r.playerId === reg.playerId && r.shift === reg.shift && r.date === reg.date)) {
-    regs.push(reg);
-    localStorage.setItem(KEYS.REGISTRATIONS, JSON.stringify(regs));
-    notifyListeners();
-    if (supabase) await supabase.from('registrations').insert(reg);
-  }
+    const regs = getRegistrations();
+    // Verificação de segurança para evitar duplicados exatos
+    if (!regs.find(r => r.id === reg.id)) {
+        regs.push(reg);
+        localStorage.setItem(KEYS.REGISTRATIONS, JSON.stringify(regs));
+        notifyListeners();
+        try {
+            if (supabase) {
+                const { error } = await supabase.from('registrations').insert(reg);
+                if (error) console.error("Erro Supabase Insert:", error);
+            }
+        } catch (e) {
+            console.error("Falha ao sincronizar inscrição:", e);
+        }
+    }
 };
 
 export const updateRegistration = async (id: string, updates: Partial<Registration>): Promise<void> => {
     const regs = getRegistrations();
-    const index = regs.findIndex(r => r.id === id);
-    if (index >= 0) {
-        regs[index] = { ...regs[index], ...updates };
+    const idx = regs.findIndex(r => r.id === id);
+    if (idx >= 0) {
+        regs[idx] = { ...regs[idx], ...updates };
         localStorage.setItem(KEYS.REGISTRATIONS, JSON.stringify(regs));
         notifyListeners();
         if (supabase) await supabase.from('registrations').update(updates).eq('id', id);
@@ -424,375 +190,137 @@ export const updateRegistration = async (id: string, updates: Partial<Registrati
 };
 
 export const removeRegistration = async (id: string): Promise<void> => {
-  let regs = getRegistrations();
-  const regToRemove = regs.find(r => r.id === id);
-  
-  if (!regToRemove) return;
-
-  if (!regToRemove.isWaitingList) {
-      const substitutes = regs.filter(r => 
-          r.isWaitingList && 
-          r.shift === regToRemove.shift && 
-          r.date === regToRemove.date && 
-          r.type === regToRemove.type
-      );
-      
-      if (substitutes.length > 0) {
-          const activityName = regToRemove.type === 'training' ? 'TREINO' : 'JOGOS';
-          const messageContent = `Vaga disponível no turno das ${regToRemove.shift} (${activityName}). Vai ao painel de inscrições para ocupar o lugar!`;
-          
-          substitutes.forEach(sub => {
-              saveMessage({
-                  id: generateUUID(),
-                  senderId: 'SYSTEM',
-                  senderName: 'LevelUP Bot 🎾',
-                  receiverId: sub.playerId,
-                  content: messageContent,
-                  timestamp: Date.now(),
-                  read: false
-              });
-          });
-      }
-  }
-
-  regs = regs.filter(r => r.id !== id);
-  localStorage.setItem(KEYS.REGISTRATIONS, JSON.stringify(regs));
-  notifyListeners();
-  if (supabase) await supabase.from('registrations').delete().eq('id', id);
-};
-
-export const deleteRegistrationsByDate = async (date: string): Promise<void> => {
-    let regs = getRegistrations();
-    const updatedRegs = regs.filter(r => r.date !== date);
-    localStorage.setItem(KEYS.REGISTRATIONS, JSON.stringify(updatedRegs));
+    const regs = getRegistrations().filter(r => r.id !== id);
+    localStorage.setItem(KEYS.REGISTRATIONS, JSON.stringify(regs));
     notifyListeners();
-    if (supabase) {
-        await supabase.from('registrations').delete().eq('date', date);
-    }
+    if (supabase) await supabase.from('registrations').delete().eq('id', id);
 };
 
-// --- Matches & Points ---
-
-export const getMatches = (): MatchRecord[] => {
-  const data = localStorage.getItem(KEYS.MATCHES);
-  return data ? JSON.parse(data) : [];
-};
-
+export const getMatches = (): MatchRecord[] => JSON.parse(localStorage.getItem(KEYS.MATCHES) || '[]');
 export const addMatch = async (match: MatchRecord, points: number): Promise<void> => {
-  const matches = getMatches();
-  matches.push(match);
-  localStorage.setItem(KEYS.MATCHES, JSON.stringify(matches));
-  
-  if (supabase) await supabase.from('matches').insert(match);
-
-  const players = getPlayers();
-  const playersToUpdate: Player[] = [];
-  
-  match.playerIds.forEach(pid => {
-    const pIndex = players.findIndex(p => p.id === pid);
-    if (pIndex >= 0) {
-      players[pIndex].totalPoints += points;
-      players[pIndex].gamesPlayed += 1;
-      playersToUpdate.push(players[pIndex]);
-    }
-  });
-  
-  localStorage.setItem(KEYS.PLAYERS, JSON.stringify(players));
-  notifyListeners();
-  
-  if (supabase && playersToUpdate.length > 0) {
-      await supabase.from('players').upsert(playersToUpdate);
-  }
-};
-
-export const deleteMatchesByDate = async (date: string): Promise<void> => {
-    let matches = getMatches();
+    const matches = getMatches();
+    matches.push(match);
+    localStorage.setItem(KEYS.MATCHES, JSON.stringify(matches));
+    
     const players = getPlayers();
-    
-    const matchesToDelete = matches.filter(m => m.date === date);
-    if (matchesToDelete.length === 0) return;
-
-    const pointsMap = {
-        [GameResult.WIN]: 4,
-        [GameResult.DRAW]: 2,
-        [GameResult.LOSS]: 1
-    };
-
-    const playersToUpdateMap: Record<string, Player> = {};
-
-    matchesToDelete.forEach(match => {
-        const pts = pointsMap[match.result] || 0;
-        match.playerIds.forEach(pid => {
-            const player = playersToUpdateMap[pid] || players.find(p => p.id === pid);
-            if (player) {
-                player.totalPoints = Math.max(0, player.totalPoints - pts);
-                player.gamesPlayed = Math.max(0, player.gamesPlayed - 1);
-                playersToUpdateMap[pid] = player;
-            }
-        });
+    match.playerIds.forEach(pid => {
+        const p = players.find(x => x.id === pid);
+        if (p) { p.totalPoints += points; p.gamesPlayed += 1; }
     });
-
-    const updatedMatches = matches.filter(m => m.date !== date);
-    localStorage.setItem(KEYS.MATCHES, JSON.stringify(updatedMatches));
-    const updatedPlayers = players.map(p => playersToUpdateMap[p.id] || p);
-    localStorage.setItem(KEYS.PLAYERS, JSON.stringify(updatedPlayers));
-    
+    localStorage.setItem(KEYS.PLAYERS, JSON.stringify(players));
     notifyListeners();
-
+    
     if (supabase) {
-        await supabase.from('matches').delete().eq('date', date);
-        const playersToUpsert = Object.values(playersToUpdateMap);
-        if (playersToUpsert.length > 0) {
-            await supabase.from('players').upsert(playersToUpsert);
-        }
+        await supabase.from('matches').insert(match);
+        await supabase.from('players').upsert(players.filter(p => match.playerIds.includes(p.id)));
     }
 };
 
-// --- Messaging System ---
-
-export const getMessages = (): Message[] => {
-    const data = localStorage.getItem(KEYS.MESSAGES);
-    return data ? JSON.parse(data) : [];
-};
-
+export const getMessages = (): Message[] => JSON.parse(localStorage.getItem(KEYS.MESSAGES) || '[]');
 export const saveMessage = async (msg: Message): Promise<void> => {
-    const messages = getMessages();
-    messages.push(msg);
-    localStorage.setItem(KEYS.MESSAGES, JSON.stringify(messages));
+    const m = getMessages(); m.push(msg);
+    localStorage.setItem(KEYS.MESSAGES, JSON.stringify(m));
     notifyListeners();
     if (supabase) await supabase.from('messages').insert(msg);
 };
 
-export const clearAllMessages = async (): Promise<void> => {
-    localStorage.setItem(KEYS.MESSAGES, JSON.stringify([]));
-    notifyListeners();
-    if (supabase) {
-        // Eliminar todas as mensagens que não sejam o ID de sistema básico
-        await supabase.from('messages').delete().neq('id', '00000000-0000-0000-0000-000000000000');
-    }
-};
-
-export const getMessagesForUser = (userId: string): Message[] => {
-    const messages = getMessages();
-    
-    const deletedBroadcastKey = `padel_deleted_broadcasts_${userId}`;
-    const deletedBroadcastsData = localStorage.getItem(deletedBroadcastKey);
-    const deletedBroadcasts: string[] = deletedBroadcastsData ? JSON.parse(deletedBroadcastsData) : [];
-
-    return messages
-        .filter(m => {
-            if (m.receiverId === userId) return true;
-            if (m.receiverId === 'ALL') {
-                return !deletedBroadcasts.includes(m.id);
-            }
-            return false;
-        })
-        .sort((a, b) => b.timestamp - a.timestamp);
-};
-
-export const markMessageAsRead = async (messageId: string, userId: string): Promise<void> => {
-    const messages = getMessages();
-    const msgIndex = messages.findIndex(m => m.id === messageId);
-    
-    if (msgIndex >= 0) {
-        const msg = messages[msgIndex];
-        if (msg.receiverId === userId) {
-            messages[msgIndex].read = true;
-            localStorage.setItem(KEYS.MESSAGES, JSON.stringify(messages));
-            notifyListeners();
-            if (supabase) await supabase.from('messages').update({ read: true }).eq('id', messageId);
-        } else if (msg.receiverId === 'ALL') {
-            const readKey = `padel_read_broadcasts_${userId}`;
-            const readListData = localStorage.getItem(readKey);
-            const readList: string[] = readListData ? JSON.parse(readListData) : [];
-            if (!readList.includes(messageId)) {
-                readList.push(messageId);
-                localStorage.setItem(readKey, JSON.stringify(readList));
-                notifyListeners();
-            }
-        }
-    }
-};
-
-export const deleteMessageForUser = async (messageId: string, userId: string): Promise<void> => {
-    const messages = getMessages();
-    const msg = messages.find(m => m.id === messageId);
-    
-    if (!msg) return;
-
-    if (msg.receiverId === userId) {
-        const updated = messages.filter(m => m.id !== messageId);
-        localStorage.setItem(KEYS.MESSAGES, JSON.stringify(updated));
-        notifyListeners();
-        if (supabase) await supabase.from('messages').delete().eq('id', messageId);
-    } else if (msg.receiverId === 'ALL') {
-        const key = `padel_deleted_broadcasts_${userId}`;
-        const data = localStorage.getItem(key);
-        const deletedList: string[] = data ? JSON.parse(data) : [];
-        if (!deletedList.includes(messageId)) {
-            deletedList.push(messageId);
-            localStorage.setItem(key, JSON.stringify(deletedList));
-            notifyListeners();
-        }
-    }
-};
-
-export const deleteAllMessagesForUser = async (userId: string): Promise<void> => {
-    const currentMessages = getMessagesForUser(userId);
-    if (currentMessages.length === 0) return;
-
-    const privateIdsToDelete: string[] = [];
-    const broadcastIdsToHide: string[] = [];
-
-    currentMessages.forEach(msg => {
-        if (msg.receiverId === userId) {
-            privateIdsToDelete.push(msg.id);
-        } else if (msg.receiverId === 'ALL') {
-            broadcastIdsToHide.push(msg.id);
-        }
-    });
-
-    if (privateIdsToDelete.length > 0) {
-        const allMessages = getMessages();
-        const updatedMessages = allMessages.filter(m => !privateIdsToDelete.includes(m.id));
-        localStorage.setItem(KEYS.MESSAGES, JSON.stringify(updatedMessages));
-        if (supabase) await supabase.from('messages').delete().in('id', privateIdsToDelete);
-    }
-
-    if (broadcastIdsToHide.length > 0) {
-        const key = `padel_deleted_broadcasts_${userId}`;
-        const data = localStorage.getItem(key);
-        const deletedList: string[] = data ? JSON.parse(data) : [];
-        const newList = Array.from(new Set([...deletedList, ...broadcastIdsToHide]));
-        localStorage.setItem(key, JSON.stringify(newList));
-    }
-
-    notifyListeners();
-};
-
-export const getUnreadCount = (userId: string): number => {
-    const allMsgs = getMessagesForUser(userId);
-    const readKey = `padel_read_broadcasts_${userId}`;
-    const readListData = localStorage.getItem(readKey);
-    const readBroadcasts: string[] = readListData ? JSON.parse(readListData) : [];
-
-    return allMsgs.reduce((count, msg) => {
-        if (msg.receiverId === 'ALL') {
-            return readBroadcasts.includes(msg.id) ? count : count + 1;
-        } else {
-            return msg.read ? count : count + 1;
-        }
-    }, 0);
-};
-
-// --- App State ---
-
 export const getAppState = (): AppState => {
-  const data = localStorage.getItem(KEYS.STATE);
-  if (data) {
-    const parsed = JSON.parse(data);
-    let gamesPerShift = parsed.gamesPerShift;
-    if (typeof gamesPerShift === 'number' || !gamesPerShift) {
-        const val = typeof gamesPerShift === 'number' ? gamesPerShift : 5;
-        gamesPerShift = {
-            [Shift.MORNING_1]: val,
-            [Shift.MORNING_2]: val,
-            [Shift.MORNING_3]: val
-        };
-    }
-    let courtConfig = parsed.courtConfig;
-    if (!courtConfig) {
-        const oldActive = parsed.activeCourts || 4;
-        courtConfig = {
-            [Shift.MORNING_1]: { game: oldActive, training: 0 },
-            [Shift.MORNING_2]: { game: oldActive, training: 0 },
-            [Shift.MORNING_3]: { game: oldActive, training: 0 },
-        };
-    }
-    let passwordResetRequests = parsed.passwordResetRequests || [];
-    let adminSectionOrder = parsed.adminSectionOrder || defaultState.adminSectionOrder;
-    let toolsSectionOrder = parsed.toolsSectionOrder || defaultState.toolsSectionOrder;
-
-    // Se as seções de ferramentas ainda estiverem no adminOrder (migração), mova-as
-    if (adminSectionOrder.includes('visual') || adminSectionOrder.includes('maintenance') || adminSectionOrder.includes('finish')) {
-        adminSectionOrder = adminSectionOrder.filter(s => s !== 'visual' && s !== 'maintenance' && s !== 'finish');
-    }
-    
-    // Garantir que 'courts' existe na ordem administrativa
-    if (!adminSectionOrder.includes('courts')) {
-        adminSectionOrder.splice(1, 0, 'courts');
-    }
-
-    return { 
-        ...defaultState, 
-        ...parsed, 
-        gamesPerShift, 
-        courtConfig, 
-        passwordResetRequests, 
-        adminSectionOrder,
-        toolsSectionOrder
-    };
-  }
-  return defaultState;
+    const data = localStorage.getItem(KEYS.STATE);
+    return data ? { ...defaultState, ...JSON.parse(data) } : defaultState;
 };
 
-export const updateAppState = async (newState: Partial<AppState>): Promise<void> => {
-  const current = getAppState();
-  const merged = { ...current, ...newState };
-  localStorage.setItem(KEYS.STATE, JSON.stringify(merged));
-  notifyListeners();
-  if (supabase) await supabase.from('settings').upsert({ key: 'appState', value: merged });
+export const updateAppState = async (updates: Partial<AppState>): Promise<void> => {
+    const merged = { ...getAppState(), ...updates };
+    localStorage.setItem(KEYS.STATE, JSON.stringify(merged));
+    notifyListeners();
+    if (supabase) await supabase.from('settings').upsert({ key: 'appState', value: merged });
 };
 
-// --- Auth & Password Recovery ---
+export const getMastersState = (): MastersState => JSON.parse(localStorage.getItem(KEYS.MASTERS) || '{"teams":[], "matches":[], "currentPhase":1, "pool":[]}');
+export const saveMastersState = async (state: MastersState): Promise<void> => {
+    localStorage.setItem(KEYS.MASTERS, JSON.stringify(state));
+    notifyListeners();
+    if (supabase) await supabase.from('settings').upsert({ key: 'masters', value: state });
+};
 
-export const requestPasswordReset = (phone: string): boolean => {
-    const player = getPlayerByPhone(phone);
-    if (!player) return false;
-    const state = getAppState();
-    if (state.passwordResetRequests.find(r => r.playerId === player.id)) {
-        return true;
-    }
-    const newRequest: PasswordResetRequest = {
-        id: generateUUID(),
-        playerId: player.id,
-        playerName: player.name,
-        playerPhone: player.phone,
-        timestamp: Date.now()
-    };
-    updateAppState({
-        passwordResetRequests: [...state.passwordResetRequests, newRequest]
-    });
+// Funções auxiliares mantidas para compatibilidade
+export const approvePlayer = async (id: string) => {
+    const p = getPlayers();
+    const i = p.find(x => x.id === id);
+    if(i) { i.isApproved = true; await savePlayer(i); }
+};
+export const approveAllPendingPlayers = async () => {
+    const p = getPlayers();
+    p.forEach(x => x.isApproved = true);
+    localStorage.setItem(KEYS.PLAYERS, JSON.stringify(p));
+    notifyListeners();
+    if (supabase) await supabase.from('players').update({ isApproved: true }).eq('isApproved', false);
+};
+export const removePlayer = async (id: string) => {
+    const p = getPlayers().filter(x => x.id !== id);
+    localStorage.setItem(KEYS.PLAYERS, JSON.stringify(p));
+    notifyListeners();
+    if (supabase) await supabase.from('players').delete().eq('id', id);
+};
+export const requestPasswordReset = (phone: string) => {
+    const p = getPlayers().find(x => x.phone === phone);
+    if (!p) return false;
+    const req: PasswordResetRequest = { id: generateUUID(), playerId: p.id, playerName: p.name, playerPhone: p.phone, timestamp: Date.now() };
+    updateAppState({ passwordResetRequests: [...getAppState().passwordResetRequests, req] });
     return true;
 };
-
-export const resolvePasswordReset = async (requestId: string, approve: boolean): Promise<void> => {
-    const state = getAppState();
-    const req = state.passwordResetRequests.find(r => r.id === requestId);
+export const resolvePasswordReset = async (id: string, approve: boolean) => {
+    const s = getAppState();
+    const req = s.passwordResetRequests.find(x => x.id === id);
     if (req && approve) {
-        const players = getPlayers();
-        const pIndex = players.findIndex(p => p.id === req.playerId);
-        if (pIndex >= 0) {
-            players[pIndex].password = undefined; 
-            localStorage.setItem(KEYS.PLAYERS, JSON.stringify(players));
-            notifyListeners();
-            if (supabase) await supabase.from('players').update({ password: null }).eq('id', players[pIndex].id);
-        }
+        const p = getPlayers();
+        const i = p.find(x => x.id === req.playerId);
+        if (i) { i.password = undefined; await savePlayer(i); }
     }
-    const updatedRequests = state.passwordResetRequests.filter(r => r.id !== requestId);
-    updateAppState({ passwordResetRequests: updatedRequests });
+    updateAppState({ passwordResetRequests: s.passwordResetRequests.filter(x => x.id !== id) });
 };
-
-
-// --- MASTERS LUP ---
-
-export const getMastersState = (): MastersState => {
-  const data = localStorage.getItem(KEYS.MASTERS);
-  return data ? JSON.parse(data) : defaultMastersState;
+export const deleteMatchesByDate = async (d: string) => {
+    const m = getMatches().filter(x => x.date !== d);
+    localStorage.setItem(KEYS.MATCHES, JSON.stringify(m));
+    notifyListeners();
+    if (supabase) await supabase.from('matches').delete().eq('date', d);
 };
-
-export const saveMastersState = async (state: MastersState): Promise<void> => {
-  localStorage.setItem(KEYS.MASTERS, JSON.stringify(state));
-  notifyListeners();
-  if (supabase) await supabase.from('settings').upsert({ key: 'masters', value: state });
+export const deleteRegistrationsByDate = async (d: string) => {
+    const r = getRegistrations().filter(x => x.date !== d);
+    localStorage.setItem(KEYS.REGISTRATIONS, JSON.stringify(r));
+    notifyListeners();
+    if (supabase) await supabase.from('registrations').delete().eq('date', d);
 };
+export const markMessageAsRead = async (id: string) => {
+    const m = getMessages();
+    const i = m.find(x => x.id === id);
+    if (i) { i.read = true; localStorage.setItem(KEYS.MESSAGES, JSON.stringify(m)); notifyListeners(); if (supabase) await supabase.from('messages').update({ read: true }).eq('id', id); }
+};
+export const deleteMessageForUser = async (id: string) => {
+    const m = getMessages().filter(x => x.id !== id);
+    localStorage.setItem(KEYS.MESSAGES, JSON.stringify(m));
+    notifyListeners();
+    if (supabase) await supabase.from('messages').delete().eq('id', id);
+};
+export const deleteAllMessagesForUser = async (uid: string) => {
+    const m = getMessages().filter(x => x.receiverId !== uid && x.receiverId !== 'ALL');
+    localStorage.setItem(KEYS.MESSAGES, JSON.stringify(m));
+    notifyListeners();
+    if (supabase) await supabase.from('messages').delete().eq('receiverId', uid);
+};
+export const getUnreadCount = (uid: string) => getMessages().filter(m => (m.receiverId === uid || m.receiverId === 'ALL') && !m.read).length;
+export const getPlayerByPhone = (ph: string) => getPlayers().find(p => p.phone === ph);
+export const savePlayersBulk = (ps: any[]) => {
+    const current = getPlayers();
+    ps.forEach(p => { if(!current.find(c => c.phone === p.phone)) current.push({...p, id: generateUUID(), totalPoints:0, gamesPlayed:0, participantNumber: current.length + 1}); });
+    localStorage.setItem(KEYS.PLAYERS, JSON.stringify(current));
+    notifyListeners();
+    if (supabase) supabase.from('players').upsert(current);
+    return { added: ps.length, updated: 0 };
+};
+export const clearAllMessages = async () => {
+    localStorage.setItem(KEYS.MESSAGES, '[]');
+    notifyListeners();
+    if (supabase) await supabase.from('messages').delete().neq('id', '0');
+};
+export const getMessagesForUser = (uid: string) => getMessages().filter(m => m.receiverId === uid || m.receiverId === 'ALL');
