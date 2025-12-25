@@ -690,6 +690,12 @@ export const AdminPanel: React.FC = () => {
                                 <div className="border border-gray-200 rounded-b-lg divide-y divide-gray-100">
                                     {shiftRegs.map(reg => {
                                         const player = getPlayerDetails(reg.playerId);
+                                        const partner = reg.partnerId ? getPlayerDetails(reg.partnerId) : null;
+                                        
+                                        const p1Points = player?.totalPoints || 0;
+                                        const p2Points = partner?.totalPoints || 0;
+                                        const totalPoints = p1Points + p2Points;
+
                                         return (
                                             <div key={reg.id} className="p-3 flex justify-between items-center hover:bg-gray-50 transition-colors group">
                                                 <div className="flex-1">
@@ -703,13 +709,27 @@ export const AdminPanel: React.FC = () => {
                                                         <span className="text-xs font-normal text-gray-500">
                                                             #{player?.participantNumber}
                                                         </span>
+                                                        {/* Individual Points Display */}
+                                                        <span className="text-[10px] bg-blue-50 text-blue-600 px-1.5 py-0.5 rounded-full font-black">
+                                                            {p1Points} pts
+                                                        </span>
                                                     </div>
-                                                    <div className="text-xs text-gray-500">
+                                                    <div className="text-xs text-gray-500 flex items-center gap-2">
                                                         {reg.hasPartner ? (
-                                                            <span className="flex items-center gap-1">
-                                                                <span>Dupla com:</span>
-                                                                <span className="font-semibold">{reg.partnerName}</span>
-                                                            </span>
+                                                            <>
+                                                                <span className="flex items-center gap-1">
+                                                                    <span>Dupla com:</span>
+                                                                    <span className="font-semibold">{reg.partnerName}</span>
+                                                                    {partner && (
+                                                                        <span className="text-[10px] text-gray-400 font-bold">
+                                                                            ({p2Points} pts)
+                                                                        </span>
+                                                                    )}
+                                                                </span>
+                                                                <span className="bg-padel text-white text-[9px] px-2 py-0.5 rounded-full font-black ml-1">
+                                                                    ∑ {totalPoints} pts
+                                                                </span>
+                                                            </>
                                                         ) : (
                                                             <span className="italic">Individual</span>
                                                         )}

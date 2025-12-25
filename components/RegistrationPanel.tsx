@@ -31,7 +31,7 @@ export const RegistrationPanel: React.FC<RegistrationPanelProps> = ({ currentUse
   const [allPlayers, setAllPlayers] = useState<Player[]>([]);
   const [successMsg, setSuccessMsg] = useState('');
 
-  // New state for adding partner to an existing registration
+  // New state for adding/changing partner to an existing registration
   const [isAddingPartnerToRegId, setIsAddingPartnerToRegId] = useState<string | null>(null);
   const [addPartnerSearchTerm, setAddPartnerSearchTerm] = useState('');
   const [showAddPartnerSuggestions, setShowAddPartnerSuggestions] = useState(false);
@@ -163,7 +163,7 @@ export const RegistrationPanel: React.FC<RegistrationPanelProps> = ({ currentUse
         partnerName: partner.name
     });
 
-    setSuccessMsg('Parceiro adicionado com sucesso!');
+    setSuccessMsg(reg.hasPartner ? 'Parceiro alterado com sucesso!' : 'Parceiro adicionado com sucesso!');
     setIsAddingPartnerToRegId(null);
     setAddPartnerSearchTerm('');
     loadData();
@@ -261,6 +261,7 @@ export const RegistrationPanel: React.FC<RegistrationPanelProps> = ({ currentUse
                 const partnerObj = allPlayers.find(p => p.id === partnerId);
                 const displayPartnerName = isMyPartner ? (partnerObj?.name || '...') : r.partnerName;
                 const canAddPartner = !r.hasPartner && r.type === 'game' && !r.isWaitingList;
+                const canChangePartner = r.hasPartner && r.type === 'game' && !r.isWaitingList;
 
                 // Points calculation
                 const myFreshPoints = allPlayers.find(p => p.id === currentUser.id)?.totalPoints || 0;
@@ -327,7 +328,7 @@ export const RegistrationPanel: React.FC<RegistrationPanelProps> = ({ currentUse
                             )}
                         </div>
 
-                        {canAddPartner && (
+                        {(canAddPartner || canChangePartner) && (
                           <div className="pt-2 border-t border-gray-50">
                             <button 
                               onClick={() => {
@@ -335,9 +336,9 @@ export const RegistrationPanel: React.FC<RegistrationPanelProps> = ({ currentUse
                                 setAddPartnerSearchTerm('');
                                 setShowAddPartnerSuggestions(false);
                               }}
-                              className="w-full py-2 bg-padel/10 text-padel-dark text-[10px] font-black uppercase tracking-wider rounded-lg hover:bg-padel/20 transition-all flex items-center justify-center gap-2"
+                              className={`w-full py-2 ${canChangePartner ? 'bg-blue-50 text-blue-700 hover:bg-blue-100' : 'bg-padel/10 text-padel-dark hover:bg-padel/20'} text-[10px] font-black uppercase tracking-wider rounded-lg transition-all flex items-center justify-center gap-2`}
                             >
-                              <span>➕ Adicionar Parceiro</span>
+                              <span>{canChangePartner ? '🔄 Trocar Parceiro' : '➕ Adicionar Parceiro'}</span>
                             </button>
                           </div>
                         )}
@@ -510,12 +511,18 @@ export const RegistrationPanel: React.FC<RegistrationPanelProps> = ({ currentUse
         {/* Improved my registrations section for the main view */}
         {renderMyRegistrationsList()}
 
-        {/* ADD PARTNER MODAL */}
+        {/* ADD / CHANGE PARTNER MODAL */}
         {isAddingPartnerToRegId && (
           <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4 backdrop-blur-sm animate-fade-in">
             <div className="bg-white p-6 rounded-2xl max-w-sm w-full shadow-2xl border-t-8 border-padel">
-                <h3 className="font-black text-gray-800 mb-2 uppercase italic">Adicionar Parceiro</h3>
-                <p className="text-xs text-gray-500 mb-4 italic">Associa um parceiro à tua inscrição individual para formar dupla.</p>
+                <h3 className="font-black text-gray-800 mb-2 uppercase italic">
+                  {myRegistrations.find(r => r.id === isAddingPartnerToRegId)?.hasPartner ? "Trocar Parceiro" : "Adicionar Parceiro"}
+                </h3>
+                <p className="text-xs text-gray-500 mb-4 italic">
+                  {myRegistrations.find(r => r.id === isAddingPartnerToRegId)?.hasPartner 
+                    ? "Escolhe um novo parceiro para substituir o atual." 
+                    : "Associa um parceiro à tua inscrição individual para formar dupla."}
+                </p>
                 
                 <div className="relative mb-6">
                     <input
