@@ -181,6 +181,18 @@ export const AdminPanel: React.FC = () => {
       loadData();
   };
 
+  const confirmRemoveMainPlayerKeepPartner = () => {
+      if (!regToDelete || !regToDelete.reg.partnerId) return;
+      updateRegistration(regToDelete.reg.id, {
+          playerId: regToDelete.reg.partnerId,
+          hasPartner: false,
+          partnerId: undefined,
+          partnerName: undefined
+      });
+      setRegToDelete(null);
+      loadData();
+  };
+
   const handleExecuteResetResults = async () => {
       if (!reportFilterDate) return;
       await deleteMatchesByDate(reportFilterDate);
@@ -898,7 +910,7 @@ export const AdminPanel: React.FC = () => {
           </div>
       )}
 
-      {/* Delete Registration Confirmation Modal (Admin) */}
+      {/* Delete Registration Confirmation Modal (Admin) - MODIFIED FOR SPLIT WITHDRAWAL */}
       {regToDelete && (
           <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4 animate-fade-in backdrop-blur-sm">
               <div className="bg-white rounded-xl shadow-2xl p-6 w-full max-w-sm border-t-4 border-red-500">
@@ -914,13 +926,22 @@ export const AdminPanel: React.FC = () => {
                   </div>
                   <div className="space-y-3">
                       {regToDelete.reg.hasPartner && (
+                        <>
                           <button
                               onClick={confirmRemovePartnerOnly}
-                              className="w-full py-3 bg-blue-50 text-blue-800 rounded-lg font-bold text-sm hover:bg-blue-100 border border-blue-200"
+                              className="w-full py-3 bg-blue-50 text-blue-800 rounded-lg font-bold text-xs hover:bg-blue-100 border border-blue-200"
                           >
-                              Remover Apenas Parceiro
-                              <span className="block text-[10px] font-normal opacity-70">(Mantém {regToDelete.mainPlayerName} inscrito)</span>
+                              Remover apenas: {regToDelete.reg.partnerName}
+                              <span className="block text-[8px] font-normal opacity-70">(Mantém {regToDelete.mainPlayerName} inscrito)</span>
                           </button>
+                          <button
+                              onClick={confirmRemoveMainPlayerKeepPartner}
+                              className="w-full py-3 bg-blue-50 text-blue-800 rounded-lg font-bold text-xs hover:bg-blue-100 border border-blue-200"
+                          >
+                              Remover apenas: {regToDelete.mainPlayerName}
+                              <span className="block text-[8px] font-normal opacity-70">(Mantém {regToDelete.reg.partnerName} inscrito)</span>
+                          </button>
+                        </>
                       )}
                       <button
                           onClick={confirmDeleteEntireRegistration}
@@ -1000,7 +1021,7 @@ export const AdminPanel: React.FC = () => {
                             <p>• Os turnos desta data ficarão totalmente vazios.</p>
                             <p>• Esta ação NÃO afeta os resultados já registados, apenas as inscrições.</p>
                         </div>
-                        <p className="text-xs font-black text-red-600 uppercase">Atenção: Esta ação é irreversível!</p>
+                        <p className="text-xs font-black text-red-500 uppercase">Atenção: Esta ação é irreversível!</p>
                       </div>
                   </div>
                   <div className="p-4 bg-gray-50 flex gap-3">

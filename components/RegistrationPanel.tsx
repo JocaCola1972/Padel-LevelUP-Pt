@@ -37,7 +37,8 @@ export const RegistrationPanel: React.FC<RegistrationPanelProps> = ({ currentUse
   const [editingRegId, setEditingRegId] = useState<string | null>(null);
 
   // Cancel Confirmation State
-  const [cancelTarget, setCancelTarget] = useState<{ type: 'single', reg: Registration } | { type: 'all' } | null>(null);
+  const [cancelTarget, setCancelTarget] = useState<{ type: 'single', reg: Registration } | null>(null);
+  const [showCancelSplitModal, setShowCancelSplitModal] = useState(false);
 
   // Waiting List confirmation modal
   const [waitingListPrompt, setWaitingListPrompt] = useState<{ shift: Shift, type: 'game' | 'training', asPartner: boolean } | null>(null);
@@ -67,7 +68,6 @@ export const RegistrationPanel: React.FC<RegistrationPanelProps> = ({ currentUse
     setAllTournamentRegistrations(regsForDate);
 
     // Filter: Inscrições do utilizador logado (Como Jogador OU Como Parceiro)
-    // CRÍTICO: Verificar se o utilizador logado é parceiro numa inscrição de outrem
     const activeRegs = regsForDate.filter(r => r.playerId === currentUser.id || r.partnerId === currentUser.id);
 
     // Mostrar as mais recentes primeiro
@@ -220,7 +220,6 @@ export const RegistrationPanel: React.FC<RegistrationPanelProps> = ({ currentUse
       const numCourts = config[type];
       const totalSlots = numCourts * 4;
       
-      // Sincronizar contagem: Tratar nulo como 'game'
       const usedSlots = allTournamentRegistrations
           .filter(r => 
             r.shift === shift && 
@@ -259,19 +258,56 @@ export const RegistrationPanel: React.FC<RegistrationPanelProps> = ({ currentUse
 
   const initiateCancelSingle = (reg: Registration, e: React.MouseEvent) => {
     e.preventDefault();
-    setCancelTarget({ type: 'single', reg });
+    if (reg.hasPartner && (reg.type === 'game' || !reg.type)) {
+        setCancelTarget({ type: 'single', reg });
+        setShowCancelSplitModal(true);
+    } else {
+        setCancelTarget({ type: 'single', reg });
+    }
   };
 
-  const confirmCancellation = () => {
+  const handleCancelEntireDupla = () => {
       if (!cancelTarget) return;
-      if (cancelTarget.type === 'single') {
-          removeRegistration(cancelTarget.reg.id);
-          setSuccessMsg('Inscrição cancelada com sucesso.');
+      removeRegistration(cancelTarget.reg.id);
+      setSuccessMsg('Inscrição da dupla cancelada.');
+      finishCancellation();
+  };
+
+  const handleCancelOnlyMe = () => {
+      if (!cancelTarget) return;
+      const reg = cancelTarget.reg;
+      
+      if (reg.playerId === currentUser.id) {
+          // I am the owner, pass ownership to partner
+          updateRegistration(reg.id, {
+              playerId: reg.partnerId!,
+              hasPartner: false,
+              partnerId: undefined,
+              partnerName: undefined
+          });
       } else {
-          myRegistrations.forEach(r => removeRegistration(r.id));
-          setSuccessMsg('Todas as inscrições foram canceladas.');
+          // I am the guest, remove myself
+          updateRegistration(reg.id, {
+              hasPartner: false,
+              partnerId: undefined,
+              partnerName: undefined
+          });
       }
+
+      setSuccessMsg('A tua participação foi cancelada. O parceiro mantém o lugar e pode escolher um novo substituto.');
+      finishCancellation();
+  };
+
+  const handleCancelIndividualConfirm = () => {
+      if (!cancelTarget) return;
+      removeRegistration(cancelTarget.reg.id);
+      setSuccessMsg('Inscrição cancelada com sucesso.');
+      finishCancellation();
+  };
+
+  const finishCancellation = () => {
       setCancelTarget(null);
+      setShowCancelSplitModal(false);
       setTimeout(() => setSuccessMsg(''), 3000);
       loadData();
   };
@@ -296,7 +332,6 @@ export const RegistrationPanel: React.FC<RegistrationPanelProps> = ({ currentUse
                     const { remaining } = getShiftAvailability(r.shift, r.type || 'game');
                     const canPromote = isWaiting && remaining >= (r.hasPartner ? 2 : 1);
 
-                    // Determinar quem é o parceiro (independente de quem inscreveu quem)
                     const companionId = r.playerId === currentUser.id ? r.partnerId : r.playerId;
                     const companionData = getPlayers().find(p => p.id === companionId);
                     const companionName = r.playerId === currentUser.id ? (r.partnerName || '...') : (companionData?.name || 'Parceiro');
@@ -334,7 +369,7 @@ export const RegistrationPanel: React.FC<RegistrationPanelProps> = ({ currentUse
                                                 )}
                                             </>
                                         ) : (
-                                            <span className="italic text-gray-400">Individual</span>
+                                            <span className="italic text-gray-400">Vaga aberta (individual)</span>
                                         )}
                                     </div>
                                 </div>
@@ -349,7 +384,7 @@ export const RegistrationPanel: React.FC<RegistrationPanelProps> = ({ currentUse
                                         OCUPAR VAGA ⚡
                                     </button>
                                 )}
-                                {!isTraining && r.playerId === currentUser.id && (
+                                {!isTraining && !r.hasPartner && (
                                     <button
                                         type="button"
                                         disabled={isFinished}
@@ -359,8 +394,9 @@ export const RegistrationPanel: React.FC<RegistrationPanelProps> = ({ currentUse
                                             ? 'bg-gray-100 text-gray-300 cursor-not-allowed'
                                             : 'bg-blue-50 text-blue-500 hover:bg-blue-100'
                                         }`}
+                                        title="Convidar Parceiro"
                                     >
-                                        {isFinished ? '🔒' : (r.hasPartner ? '🔄' : '➕👤')}
+                                        {isFinished ? '🔒' : '➕👤'}
                                     </button>
                                 )}
                                 <button 
@@ -379,19 +415,6 @@ export const RegistrationPanel: React.FC<RegistrationPanelProps> = ({ currentUse
         </div>
     );
   };
-
-  if (!appState.registrationsOpen) {
-    return (
-      <div className="text-center p-8 bg-gray-50 rounded-xl border-dashed border-2 border-gray-300">
-        <h3 className="text-xl font-bold text-gray-400 mb-2">Inscrições Fechadas</h3>
-        <p className="text-gray-600 font-medium">As inscrições abrem todos os Domingos, às 15h00m.</p>
-        <div className="mt-8 text-left">
-            <h4 className="font-semibold text-gray-700 mb-3 text-sm uppercase tracking-wide">As tuas inscrições</h4>
-             {renderMyRegistrations()}
-        </div>
-      </div>
-    );
-  }
 
   const renderSearchUI = (isModal: boolean) => (
       <div className="space-y-4">
@@ -470,6 +493,19 @@ export const RegistrationPanel: React.FC<RegistrationPanelProps> = ({ currentUse
       </div>
   );
 
+  if (!appState.registrationsOpen) {
+    return (
+      <div className="text-center p-8 bg-gray-50 rounded-xl border-dashed border-2 border-gray-300">
+        <h3 className="text-xl font-bold text-gray-400 mb-2">Inscrições Fechadas</h3>
+        <p className="text-gray-600 font-medium">As inscrições abrem todos os Domingos, às 15h00m.</p>
+        <div className="mt-8 text-left">
+            <h4 className="font-semibold text-gray-700 mb-3 text-sm uppercase tracking-wide">As tuas inscrições</h4>
+             {renderMyRegistrations()}
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-8">
         <div className="bg-white p-6 rounded-xl shadow-lg border-t-4 border-padel relative">
@@ -479,7 +515,7 @@ export const RegistrationPanel: React.FC<RegistrationPanelProps> = ({ currentUse
         </h2>
         
         {successMsg && (
-            <div className="mb-4 p-3 bg-green-100 text-green-800 rounded-lg flex items-center gap-2 animate-pulse">
+            <div className="fixed top-20 left-1/2 -translate-x-1/2 z-50 p-3 bg-green-100 text-green-800 rounded-lg flex items-center gap-2 animate-bounce border border-green-200 shadow-lg">
             ✅ {successMsg}
             </div>
         )}
@@ -570,7 +606,7 @@ export const RegistrationPanel: React.FC<RegistrationPanelProps> = ({ currentUse
         {editingRegId && (
             <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4 animate-fade-in">
                 <div className="bg-white rounded-xl shadow-2xl p-6 w-full max-sm">
-                    <h3 className="text-xl font-bold mb-4 text-gray-800">Alterar Dupla</h3>
+                    <h3 className="text-xl font-bold mb-4 text-gray-800">Associar Parceiro</h3>
                     {renderSearchUI(true)}
                     <div className="flex gap-2 mt-6">
                         <Button variant="ghost" className="flex-1" onClick={() => { setEditingRegId(null); resetPartnerForm(); }}>Fechar</Button>
@@ -586,16 +622,56 @@ export const RegistrationPanel: React.FC<RegistrationPanelProps> = ({ currentUse
             {renderMyRegistrations()}
         </div>
         
-        {cancelTarget && (
+        {/* MODAL DE DESISTÊNCIA DE DUPLA (SPLIT CANCEL) */}
+        {showCancelSplitModal && cancelTarget && (
+            <div className="fixed inset-0 bg-black/70 z-[100] flex items-center justify-center p-4 backdrop-blur-sm animate-fade-in">
+                <div className="bg-white rounded-2xl shadow-2xl w-full max-sm overflow-hidden border-t-8 border-red-500">
+                    <div className="p-6 text-center">
+                        <div className="w-16 h-16 bg-red-50 text-red-500 rounded-full flex items-center justify-center mx-auto mb-4 text-3xl">
+                            👋
+                        </div>
+                        <h3 className="text-xl font-black text-gray-800 mb-2 tracking-tight">Cancelar Inscrição</h3>
+                        <p className="text-gray-600 text-sm mb-6 font-medium">
+                            Estás inscrito com um parceiro. Desejas cancelar a inscrição de ambos ou apenas a tua?
+                        </p>
+                        <div className="space-y-3">
+                            <Button 
+                                onClick={handleCancelOnlyMe}
+                                className="w-full py-4 bg-blue-50 text-blue-700 border-2 border-blue-200 hover:bg-blue-100 font-black uppercase text-sm shadow-sm"
+                            >
+                                Cancelar apenas a minha inscrição
+                                <span className="block text-[10px] font-normal lowercase opacity-70 mt-0.5">O meu parceiro mantém o lugar e pode escolher outro substituto</span>
+                            </Button>
+                            <Button 
+                                onClick={handleCancelEntireDupla}
+                                className="w-full py-4 bg-red-600 hover:bg-red-700 text-white font-black uppercase text-sm shadow-md"
+                            >
+                                Cancelar inscrição da Dupla
+                                <span className="block text-[10px] font-normal lowercase opacity-90 mt-0.5">Ambos os jogadores serão removidos deste turno</span>
+                            </Button>
+                            <button 
+                                onClick={() => setShowCancelSplitModal(false)}
+                                className="text-xs text-gray-400 font-bold uppercase hover:underline mt-4"
+                            >
+                                Não, manter tudo como está
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        )}
+
+        {/* MODAL DE CANCELAMENTO INDIVIDUAL SIMPLES */}
+        {!showCancelSplitModal && cancelTarget && (
             <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4 animate-fade-in backdrop-blur-sm">
                 <div className="bg-white rounded-xl shadow-2xl p-6 w-full max-sm border-t-4 border-red-500">
                     <div className="text-center mb-6">
                         <h3 className="text-xl font-bold mb-2">Cancelar Inscrição?</h3>
-                        <p className="text-sm text-gray-600">Vais libertar o teu lugar para outros jogadores.</p>
+                        <p className="text-sm text-gray-600">Confirma que desejas cancelar a tua inscrição em <strong>{cancelTarget.reg.shift}</strong>.</p>
                     </div>
                     <div className="flex gap-3">
                         <Button variant="secondary" onClick={() => setCancelTarget(null)} className="flex-1">Manter</Button>
-                        <Button variant="danger" onClick={confirmCancellation} className="flex-1">Confirmar</Button>
+                        <Button variant="danger" onClick={handleCancelIndividualConfirm} className="flex-1">Confirmar</Button>
                     </div>
                 </div>
             </div>
