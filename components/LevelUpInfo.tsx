@@ -44,9 +44,9 @@ export const LevelUpInfo: React.FC = () => {
                         📈
                     </div>
                     <div>
-                        <h3 className="font-bold text-gray-800 mb-1 uppercase text-sm tracking-wide">Formato Sobe e Desce</h3>
+                        <h3 className="font-bold text-gray-800 mb-1 uppercase text-sm tracking-wide">DESAFIA OS TEUS LIMITES</h3>
                         <p className="text-xs text-gray-500 leading-relaxed">
-                            Joga contra adversários do teu nível. Ganha para subir de campo, perde e luta para voltar ao topo. Dinamismo puro em cada domingo.
+                            Joga contra adversários do teu nível. Ganha para subir de nível, perde e luta para voltar ao topo. Dinamismo puro em cada domingo
                         </p>
                     </div>
                 </div>

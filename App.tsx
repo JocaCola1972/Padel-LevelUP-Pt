@@ -140,17 +140,17 @@ const App: React.FC = () => {
       </main>
 
       <nav className="fixed bottom-0 left-0 right-0 bg-white/95 backdrop-blur border-t z-20 pb-safe shadow-lg flex overflow-x-auto no-scrollbar items-center px-2">
-          <NavButton active={activeTab === Tab.LEVELUP} onClick={() => setActiveTab(Tab.LEVELUP)} icon="🚀" label="Liga" />
+          <NavButton active={activeTab === Tab.LEVELUP} onClick={() => setActiveTab(Tab.LEVELUP)} icon="🚀" label="LEVELUP" />
           <NavButton active={activeTab === Tab.REGISTRATION} onClick={() => setActiveTab(Tab.REGISTRATION)} icon="📝" label="Insc." />
           <NavButton active={activeTab === Tab.INSCRITOS} onClick={() => setActiveTab(Tab.INSCRITOS)} icon="📋" label="Lista" />
           <NavButton active={activeTab === Tab.MATCHES} onClick={() => setActiveTab(Tab.MATCHES)} icon="🥎" label="Jogos" />
           <NavButton active={activeTab === Tab.RANKING} onClick={() => setActiveTab(Tab.RANKING)} icon="🏆" label="Rank" />
           {isAdmin && (
             <>
-              <NavButton active={activeTab === Tab.MEMBERS} onClick={() => setActiveTab(Tab.MEMBERS)} icon="👥" label="Membros" />
               <NavButton active={activeTab === Tab.MASTERS} onClick={() => setActiveTab(Tab.MASTERS)} icon="👑" label="Masters" />
-              <NavButton active={activeTab === Tab.TOOLS} onClick={() => setActiveTab(Tab.TOOLS)} icon="🛠️" label="Ferram." />
+              <NavButton active={activeTab === Tab.MEMBERS} onClick={() => setActiveTab(Tab.MEMBERS)} icon="👥" label="Membros" />
               <NavButton active={activeTab === Tab.ADMIN} onClick={() => setActiveTab(Tab.ADMIN)} icon="⚙️" label="Admin" />
+              <NavButton active={activeTab === Tab.TOOLS} onClick={() => setActiveTab(Tab.TOOLS)} icon="🛠️" label="Ferram." />
             </>
           )}
       </nav>
