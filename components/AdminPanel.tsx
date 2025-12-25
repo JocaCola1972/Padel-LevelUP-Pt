@@ -676,7 +676,15 @@ export const AdminPanel: React.FC = () => {
                         Inscritos para <span className="font-bold text-gray-900">{regFilterDate}</span>:
                     </p>
                     {Object.values(Shift).map(shift => {
-                        const shiftRegs = filteredRegistrations.filter(r => r.shift === shift);
+                        const shiftRegs = filteredRegistrations
+                            .filter(r => r.shift === shift)
+                            .sort((a, b) => {
+                                const pointsA = (getPlayerDetails(a.playerId)?.totalPoints || 0) + 
+                                               (a.partnerId ? (getPlayerDetails(a.partnerId)?.totalPoints || 0) : 0);
+                                const pointsB = (getPlayerDetails(b.playerId)?.totalPoints || 0) + 
+                                               (b.partnerId ? (getPlayerDetails(b.partnerId)?.totalPoints || 0) : 0);
+                                return pointsB - pointsA;
+                            });
                         if (shiftRegs.length === 0) return null;
                         
                         const numCourts = state.courtConfig[shift]?.game || 0;
@@ -698,7 +706,7 @@ export const AdminPanel: React.FC = () => {
 
                                         return (
                                             <div key={reg.id} className="p-3 flex justify-between items-center hover:bg-gray-50 transition-colors group">
-                                                <div className="flex-1 min-w-0">
+                                                <div className="flex-1 min-0">
                                                     <div className="font-bold text-gray-800 flex items-center gap-2 flex-wrap">
                                                         <span>{player?.name || 'Desconhecido'}</span>
                                                         {reg.hasPartner && <span className="text-gray-400 font-medium">&</span>}
@@ -1109,7 +1117,7 @@ export const AdminPanel: React.FC = () => {
                                                           <tr key={m.id} className="hover:bg-gray-50/50">
                                                               <td className="px-4 py-2 text-center font-bold text-gray-500">{m.courtNumber}</td>
                                                               <td className="px-4 py-2 text-center font-mono text-gray-400">#{m.gameNumber}</td>
-                                                              <td className="px-4 py-2 font-semibold text-gray-800">{teamNames}</td>
+                                                              <td className="px-4 py-2 font-semibold text-gray-700">{teamNames}</td>
                                                               <td className="px-4 py-2 text-center">
                                                                   <span className={`px-2 py-1 rounded text-xs font-bold ${
                                                                       m.result === GameResult.WIN ? 'bg-green-100 text-green-800' :
