@@ -31,10 +31,19 @@ export const RegistrationPanel: React.FC<RegistrationPanelProps> = ({ currentUse
   const [allPlayers, setAllPlayers] = useState<Player[]>([]);
   const [successMsg, setSuccessMsg] = useState('');
 
-  // Added: filteredCandidates logic to fix compilation error and provide partner search results
+  // New state for adding partner to an existing registration
+  const [isAddingPartnerToRegId, setIsAddingPartnerToRegId] = useState<string | null>(null);
+  const [addPartnerSearchTerm, setAddPartnerSearchTerm] = useState('');
+  const [showAddPartnerSuggestions, setShowAddPartnerSuggestions] = useState(false);
+
   const filteredCandidates = allPlayers.filter(p => 
       p.name.toLowerCase().includes(partnerSearchTerm.toLowerCase()) || 
       p.phone.includes(partnerSearchTerm)
+  ).slice(0, 5);
+
+  const filteredAddPartnerCandidates = allPlayers.filter(p => 
+      p.name.toLowerCase().includes(addPartnerSearchTerm.toLowerCase()) || 
+      p.phone.includes(addPartnerSearchTerm)
   ).slice(0, 5);
 
   const checkAutoOpen = (state: AppState) => {
@@ -128,6 +137,36 @@ export const RegistrationPanel: React.FC<RegistrationPanelProps> = ({ currentUse
     setTimeout(() => setSuccessMsg(''), 3000);
   };
 
+  const handleAddPartnerToExisting = async (partner: Player) => {
+    if (!isAddingPartnerToRegId) return;
+
+    // Check if partner is already playing in this shift
+    const reg = myRegistrations.find(r => r.id === isAddingPartnerToRegId);
+    if (!reg) return;
+
+    const partnerConflict = allTournamentRegistrations.find(r => 
+        r.shift === reg.shift && (r.playerId === partner.id || r.partnerId === partner.id)
+    );
+
+    if (partnerConflict) {
+        alert(`${partner.name} já tem uma inscrição ativa neste turno!`);
+        return;
+    }
+
+    // Update the registration
+    await updateRegistration(isAddingPartnerToRegId, {
+        hasPartner: true,
+        partnerId: partner.id,
+        partnerName: partner.name
+    });
+
+    setSuccessMsg('Parceiro adicionado com sucesso!');
+    setIsAddingPartnerToRegId(null);
+    setAddPartnerSearchTerm('');
+    loadData();
+    setTimeout(() => setSuccessMsg(''), 3000);
+  };
+
   const getShiftAvailability = (shift: Shift, type: 'game' | 'training') => {
       const config = appState.courtConfig[shift];
       if (!config) return { total: 0, used: 0, remaining: 0, percentage: 100 };
@@ -216,42 +255,60 @@ export const RegistrationPanel: React.FC<RegistrationPanelProps> = ({ currentUse
             {myRegistrations.map(r => {
                 const isMyPartner = r.partnerId === currentUser.id;
                 const displayPartnerName = isMyPartner ? (allPlayers.find(p => p.id === r.playerId)?.name || '...') : r.partnerName;
+                const canAddPartner = !r.hasPartner && r.type === 'game' && !r.isWaitingList;
 
                 return (
-                    <li key={r.id} className="p-3 bg-white rounded-lg shadow-sm border border-gray-100 flex justify-between items-center text-sm hover:shadow-md transition-shadow">
-                        <div className="flex flex-col gap-1">
-                            <div className="flex items-center gap-2">
-                                <span className="font-black text-gray-800 italic">{r.shift}</span>
-                                <span className={`text-[9px] px-1.5 py-0.5 rounded font-black uppercase tracking-wider ${r.type === 'training' ? 'bg-orange-100 text-orange-600' : 'bg-padel/10 text-padel-dark'}`}>
-                                    {r.type === 'training' ? '🎓 Treino' : '🎾 Jogo'}
-                                </span>
-                            </div>
-                            <div className="flex flex-col">
-                                {r.hasPartner ? (
-                                    <div className="text-[11px] font-bold text-gray-600 flex items-center gap-1">
-                                        <span className="text-padel">👥 Dupla com:</span>
-                                        <span className="text-gray-900">{displayPartnerName}</span>
-                                    </div>
-                                ) : (
-                                    <span className="text-[10px] text-gray-400 font-medium italic">👤 Inscrição Individual</span>
-                                )}
-                                {r.isWaitingList && (
-                                    <span className="text-[10px] font-black text-yellow-600 uppercase mt-1">⏳ Lista de Suplentes</span>
-                                )}
-                            </div>
+                    <li key={r.id} className="p-3 bg-white rounded-lg shadow-sm border border-gray-100 flex flex-col gap-3 hover:shadow-md transition-shadow">
+                        <div className="flex justify-between items-start">
+                          <div className="flex flex-col gap-1">
+                              <div className="flex items-center gap-2">
+                                  <span className="font-black text-gray-800 italic">{r.shift}</span>
+                                  <span className={`text-[9px] px-1.5 py-0.5 rounded font-black uppercase tracking-wider ${r.type === 'training' ? 'bg-orange-100 text-orange-600' : 'bg-padel/10 text-padel-dark'}`}>
+                                      {r.type === 'training' ? '🎓 Treino' : '🎾 Jogo'}
+                                  </span>
+                              </div>
+                              <div className="flex flex-col">
+                                  {r.hasPartner ? (
+                                      <div className="text-[11px] font-bold text-gray-600 flex items-center gap-1">
+                                          <span className="text-padel">👥 Dupla com:</span>
+                                          <span className="text-gray-900">{displayPartnerName}</span>
+                                      </div>
+                                  ) : (
+                                      <span className="text-[10px] text-gray-400 font-medium italic">👤 Inscrição Individual</span>
+                                  )}
+                                  {r.isWaitingList && (
+                                      <span className="text-[10px] font-black text-yellow-600 uppercase mt-1">⏳ Lista de Suplentes</span>
+                                  )}
+                              </div>
+                          </div>
+                          <button 
+                              onClick={(e) => { 
+                                  e.preventDefault(); 
+                                  setCancelTarget({ type: 'single', reg: r }); 
+                                  if (r.hasPartner) setShowCancelSplitModal(true); 
+                                  else handleCancelEntireDupla(); 
+                              }} 
+                              className="text-red-400 hover:text-red-600 p-2 text-xs font-bold transition-colors"
+                              title="Desistir"
+                          >
+                              Desistir
+                          </button>
                         </div>
-                        <button 
-                            onClick={(e) => { 
-                                e.preventDefault(); 
-                                setCancelTarget({ type: 'single', reg: r }); 
-                                if (r.hasPartner) setShowCancelSplitModal(true); 
-                                else handleCancelEntireDupla(); 
-                            }} 
-                            className="text-red-400 hover:text-red-600 p-2 text-xs font-bold transition-colors"
-                            title="Desistir"
-                        >
-                            Desistir
-                        </button>
+                        
+                        {canAddPartner && (
+                          <div className="pt-2 border-t border-gray-50">
+                            <button 
+                              onClick={() => {
+                                setIsAddingPartnerToRegId(r.id);
+                                setAddPartnerSearchTerm('');
+                                setShowAddPartnerSuggestions(false);
+                              }}
+                              className="w-full py-2 bg-padel/10 text-padel-dark text-[10px] font-black uppercase tracking-wider rounded-lg hover:bg-padel/20 transition-all flex items-center justify-center gap-2"
+                            >
+                              <span>➕ Adicionar Parceiro</span>
+                            </button>
+                          </div>
+                        )}
                     </li>
                 );
             })}
@@ -420,6 +477,60 @@ export const RegistrationPanel: React.FC<RegistrationPanelProps> = ({ currentUse
 
         {/* Improved my registrations section for the main view */}
         {renderMyRegistrationsList()}
+
+        {/* ADD PARTNER MODAL */}
+        {isAddingPartnerToRegId && (
+          <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4 backdrop-blur-sm animate-fade-in">
+            <div className="bg-white p-6 rounded-2xl max-w-sm w-full shadow-2xl border-t-8 border-padel">
+                <h3 className="font-black text-gray-800 mb-2 uppercase italic">Adicionar Parceiro</h3>
+                <p className="text-xs text-gray-500 mb-4 italic">Associa um parceiro à tua inscrição individual para formar dupla.</p>
+                
+                <div className="relative mb-6">
+                    <input
+                        type="text"
+                        placeholder="Pesquisar por nome ou telemóvel..."
+                        value={addPartnerSearchTerm}
+                        onChange={(e) => {
+                          setAddPartnerSearchTerm(e.target.value);
+                          setShowAddPartnerSuggestions(true);
+                        }}
+                        className="w-full p-3 border border-gray-300 rounded-lg outline-none focus:ring-2 focus:ring-padel transition-all text-sm"
+                        autoFocus
+                    />
+                    {showAddPartnerSuggestions && addPartnerSearchTerm && (
+                        <ul className="absolute z-10 w-full bg-white border border-gray-100 rounded-lg shadow-xl mt-1 max-h-48 overflow-y-auto overflow-x-hidden">
+                            {filteredAddPartnerCandidates.map(p => (
+                                <li 
+                                  key={p.id} 
+                                  onClick={() => handleAddPartnerToExisting(p)} 
+                                  className="p-3 hover:bg-gray-50 cursor-pointer text-sm border-b border-gray-50 last:border-0 flex justify-between items-center"
+                                >
+                                    <span className="font-bold text-gray-700">{p.name}</span>
+                                    <span className="text-[10px] text-gray-400 font-mono">{p.phone}</span>
+                                </li>
+                            ))}
+                            {filteredAddPartnerCandidates.length === 0 && (
+                                <li className="p-4 text-center text-xs text-gray-400 italic">Nenhum jogador encontrado.</li>
+                            )}
+                        </ul>
+                    )}
+                </div>
+
+                <div className="flex gap-2">
+                    <Button 
+                      variant="ghost" 
+                      onClick={() => {
+                        setIsAddingPartnerToRegId(null);
+                        setAddPartnerSearchTerm('');
+                      }} 
+                      className="w-full font-bold"
+                    >
+                        Cancelar
+                    </Button>
+                </div>
+            </div>
+          </div>
+        )}
 
         {showCancelSplitModal && (
             <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4">
