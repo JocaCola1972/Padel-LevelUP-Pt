@@ -79,7 +79,7 @@ export const RegistrationPanel: React.FC<RegistrationPanelProps> = ({ currentUse
       date: appState.nextSundayDate,
       hasPartner: registerMode === 'partner',
       partnerName: registerMode === 'partner' ? selectedPartnerName : undefined,
-      partnerId: registerMode === 'partner' ? selectedPartnerId : undefined,
+      partnerId: (registerMode === 'partner' && selectedPartnerId) ? selectedPartnerId : undefined,
       type: regType,
       isWaitingList: forceWaitingList
     };

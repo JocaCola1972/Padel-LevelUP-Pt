@@ -79,7 +79,6 @@ export const fetchAllData = async () => {
 
 const mergeAndSave = (key: string, cloudData: any[]) => {
     const localData = JSON.parse(localStorage.getItem(key) || '[]');
-    // Criamos um mapa para evitar duplicados, priorizando dados da nuvem mas mantendo novos locais
     const merged = [...cloudData];
     localData.forEach((l: any) => {
         if (!merged.find(c => c.id === l.id)) {
@@ -156,24 +155,42 @@ export const savePlayer = async (player: Player): Promise<void> => {
     else players.push(player);
     localStorage.setItem(KEYS.PLAYERS, JSON.stringify(players));
     notifyListeners();
-    if (supabase) await supabase.from('players').upsert(player);
+    if (supabase) {
+        const { error } = await supabase.from('players').upsert(player);
+        if (error) console.error("Erro Supabase Player Upsert:", error);
+    }
 };
 
 export const getRegistrations = (): Registration[] => JSON.parse(localStorage.getItem(KEYS.REGISTRATIONS) || '[]');
+
+const cleanRegistrationForDB = (reg: Registration) => {
+    return {
+        ...reg,
+        partnerId: reg.partnerId || null,
+        partnerName: reg.partnerName || null,
+        type: reg.type || 'game',
+        isWaitingList: !!reg.isWaitingList,
+        startingCourt: reg.startingCourt || null
+    };
+};
+
 export const addRegistration = async (reg: Registration): Promise<void> => {
     const regs = getRegistrations();
-    // Verificação de segurança para evitar duplicados exatos
     if (!regs.find(r => r.id === reg.id)) {
         regs.push(reg);
         localStorage.setItem(KEYS.REGISTRATIONS, JSON.stringify(regs));
         notifyListeners();
+
         try {
             if (supabase) {
-                const { error } = await supabase.from('registrations').insert(reg);
-                if (error) console.error("Erro Supabase Insert:", error);
+                const cleanReg = cleanRegistrationForDB(reg);
+                const { error } = await supabase.from('registrations').insert(cleanReg);
+                if (error) {
+                    console.error("Erro Supabase Inscrição Insert:", error.message, error.details, error.hint);
+                }
             }
         } catch (e) {
-            console.error("Falha ao sincronizar inscrição:", e);
+            console.error("Falha crítica ao sincronizar inscrição:", e);
         }
     }
 };
@@ -185,7 +202,10 @@ export const updateRegistration = async (id: string, updates: Partial<Registrati
         regs[idx] = { ...regs[idx], ...updates };
         localStorage.setItem(KEYS.REGISTRATIONS, JSON.stringify(regs));
         notifyListeners();
-        if (supabase) await supabase.from('registrations').update(updates).eq('id', id);
+        if (supabase) {
+            const { error } = await supabase.from('registrations').update(updates).eq('id', id);
+            if (error) console.error("Erro Supabase Inscrição Update:", error);
+        }
     }
 };
 
@@ -193,7 +213,19 @@ export const removeRegistration = async (id: string): Promise<void> => {
     const regs = getRegistrations().filter(r => r.id !== id);
     localStorage.setItem(KEYS.REGISTRATIONS, JSON.stringify(regs));
     notifyListeners();
-    if (supabase) await supabase.from('registrations').delete().eq('id', id);
+    if (supabase) {
+        const { error } = await supabase.from('registrations').delete().eq('id', id);
+        if (error) console.error("Erro Supabase Inscrição Delete:", error);
+    }
+};
+
+export const clearAllRegistrations = async (): Promise<void> => {
+    localStorage.setItem(KEYS.REGISTRATIONS, '[]');
+    notifyListeners();
+    if (supabase) {
+        const { error } = await supabase.from('registrations').delete().neq('id', '0');
+        if (error) console.error("Erro ao limpar inscrições na nuvem:", error);
+    }
 };
 
 export const getMatches = (): MatchRecord[] => JSON.parse(localStorage.getItem(KEYS.MATCHES) || '[]');
@@ -243,7 +275,6 @@ export const saveMastersState = async (state: MastersState): Promise<void> => {
     if (supabase) await supabase.from('settings').upsert({ key: 'masters', value: state });
 };
 
-// Funções auxiliares mantidas para compatibilidade
 export const approvePlayer = async (id: string) => {
     const p = getPlayers();
     const i = p.find(x => x.id === id);

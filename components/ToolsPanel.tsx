@@ -1,7 +1,7 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 import { AppState } from '../types';
-import { getAppState, updateAppState, subscribeToChanges, clearAllMessages } from '../services/storageService';
+import { getAppState, updateAppState, subscribeToChanges, clearAllMessages, clearAllRegistrations } from '../services/storageService';
 import { Button } from './Button';
 
 const DEFAULT_TOOLS_ORDER = ['visual', 'maintenance'];
@@ -10,6 +10,7 @@ export const ToolsPanel: React.FC = () => {
   const [state, setState] = useState<AppState>(getAppState());
   const [showMessage, setShowMessage] = useState(false);
   const [showClearMessagesConfirm, setShowClearMessagesConfirm] = useState(false);
+  const [showClearRegistrationsConfirm, setShowClearRegistrationsConfirm] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const loadData = () => {
@@ -81,6 +82,12 @@ export const ToolsPanel: React.FC = () => {
       await clearAllMessages();
       setShowClearMessagesConfirm(false);
       alert("Todas as mensagens foram removidas do sistema.");
+  };
+
+  const handleExecuteClearRegistrations = async () => {
+      await clearAllRegistrations();
+      setShowClearRegistrationsConfirm(false);
+      alert("Todas as inscrições foram eliminadas do sistema.");
   };
 
   const renderSection = (key: string) => {
@@ -165,15 +172,28 @@ export const ToolsPanel: React.FC = () => {
                     </div>
                     <div className="space-y-4">
                         <div className="p-4 bg-red-50 rounded-lg border border-red-100 flex flex-col md:flex-row md:items-center justify-between gap-4">
-                            <div>
+                            <div className="flex-1">
                                 <h3 className="font-bold text-red-800">Limpeza de Mensagens</h3>
                                 <p className="text-xs text-red-600">Elimina todas as mensagens (Directas e Broadcasts) do sistema para todos os utilizadores.</p>
                             </div>
                             <Button 
                                 onClick={() => setShowClearMessagesConfirm(true)}
-                                className="bg-red-800 hover:bg-red-900 text-white text-xs py-2 shadow-red-200"
+                                className="bg-red-800 hover:bg-red-900 text-white text-xs py-2 shadow-red-200 whitespace-nowrap"
                             >
-                                Limpar Histórico de Mensagens
+                                Limpar Mensagens
+                            </Button>
+                        </div>
+
+                        <div className="p-4 bg-red-50 rounded-lg border border-red-100 flex flex-col md:flex-row md:items-center justify-between gap-4">
+                            <div className="flex-1">
+                                <h3 className="font-bold text-red-800">Limpeza de Inscrições</h3>
+                                <p className="text-xs text-red-600 font-medium">Remove ABSOLUTAMENTE TODAS as inscrições de todos os turnos e datas.</p>
+                            </div>
+                            <Button 
+                                onClick={() => setShowClearRegistrationsConfirm(true)}
+                                className="bg-red-600 hover:bg-red-700 text-white text-xs py-2 shadow-red-200 whitespace-nowrap"
+                            >
+                                Limpar Inscrições
                             </Button>
                         </div>
                     </div>
@@ -227,6 +247,46 @@ export const ToolsPanel: React.FC = () => {
                       <Button 
                         onClick={handleExecuteClearMessages} 
                         className="flex-1 py-3 bg-red-900 hover:bg-black font-black text-white"
+                      >
+                          Sim, Apagar Tudo
+                      </Button>
+                  </div>
+              </div>
+          </div>
+      )}
+
+      {/* CLEAR REGISTRATIONS CONFIRMATION MODAL */}
+      {showClearRegistrationsConfirm && (
+          <div className="fixed inset-0 bg-black/70 z-[100] flex items-center justify-center p-4 backdrop-blur-sm animate-fade-in">
+              <div className="bg-white rounded-2xl shadow-2xl w-full max-sm overflow-hidden border-t-8 border-red-600">
+                  <div className="p-6 text-center">
+                      <div className="w-16 h-16 bg-red-100 text-red-600 rounded-full flex items-center justify-center mx-auto mb-4 text-3xl">
+                          🎾
+                      </div>
+                      <h3 className="text-xl font-black text-red-600 mb-2 tracking-tight">Mensagem do LevelUP</h3>
+                      <div className="space-y-4">
+                        <p className="text-gray-800 font-bold leading-tight">
+                            Tens a certeza que desejas apagar TODAS as INSCRIÇÕES do sistema?
+                        </p>
+                        <div className="text-xs text-gray-500 leading-relaxed space-y-2 p-3 bg-gray-50 rounded-lg text-left italic">
+                            <p>• Serão removidas inscrições de todas as datas futuras e passadas.</p>
+                            <p>• Esta ação afeta todos os turnos e atividades (Jogos e Treinos).</p>
+                            <p>• Os resultados de jogos (MatchRecord) NÃO serão afetados.</p>
+                        </div>
+                        <p className="text-xs font-black text-red-600 uppercase">Atenção: Esta ação é irreversível!</p>
+                      </div>
+                  </div>
+                  <div className="p-4 bg-gray-50 flex gap-3">
+                      <Button 
+                        variant="secondary"
+                        onClick={() => setShowClearRegistrationsConfirm(false)} 
+                        className="flex-1 py-3 font-bold"
+                      >
+                          Não, Cancelar
+                      </Button>
+                      <Button 
+                        onClick={handleExecuteClearRegistrations} 
+                        className="flex-1 py-3 bg-red-600 hover:bg-red-700 font-black text-white"
                       >
                           Sim, Apagar Tudo
                       </Button>
