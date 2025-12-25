@@ -248,6 +248,44 @@ export const addMatch = async (match: MatchRecord, points: number): Promise<void
     }
 };
 
+const getPointsForResult = (result: GameResult) => {
+    switch (result) {
+        case GameResult.WIN: return 4;
+        case GameResult.DRAW: return 2;
+        case GameResult.LOSS: return 1;
+        default: return 0;
+    }
+};
+
+export const clearMatchesByShift = async (shift: Shift): Promise<void> => {
+    const matches = getMatches();
+    const toRemove = matches.filter(m => m.shift === shift);
+    const remaining = matches.filter(m => m.shift !== shift);
+    
+    const players = getPlayers();
+    toRemove.forEach(match => {
+        const pts = getPointsForResult(match.result);
+        match.playerIds.forEach(pid => {
+            const p = players.find(x => x.id === pid);
+            if (p) {
+                p.totalPoints = Math.max(0, p.totalPoints - pts);
+                p.gamesPlayed = Math.max(0, p.gamesPlayed - 1);
+            }
+        });
+    });
+
+    localStorage.setItem(KEYS.MATCHES, JSON.stringify(remaining));
+    localStorage.setItem(KEYS.PLAYERS, JSON.stringify(players));
+    notifyListeners();
+
+    if (supabase) {
+        await Promise.all([
+            supabase.from('matches').delete().eq('shift', shift),
+            supabase.from('players').upsert(players)
+        ]);
+    }
+};
+
 export const getMessages = (): Message[] => JSON.parse(localStorage.getItem(KEYS.MESSAGES) || '[]');
 export const saveMessage = async (msg: Message): Promise<void> => {
     const m = getMessages(); m.push(msg);
@@ -311,10 +349,31 @@ export const resolvePasswordReset = async (id: string, approve: boolean) => {
     updateAppState({ passwordResetRequests: s.passwordResetRequests.filter(x => x.id !== id) });
 };
 export const deleteMatchesByDate = async (d: string) => {
-    const m = getMatches().filter(x => x.date !== d);
-    localStorage.setItem(KEYS.MATCHES, JSON.stringify(m));
+    const matches = getMatches();
+    const toRemove = matches.filter(x => x.date === d);
+    const remaining = matches.filter(x => x.date !== d);
+    
+    const players = getPlayers();
+    toRemove.forEach(match => {
+        const pts = getPointsForResult(match.result);
+        match.playerIds.forEach(pid => {
+            const p = players.find(x => x.id === pid);
+            if (p) {
+                p.totalPoints = Math.max(0, p.totalPoints - pts);
+                p.gamesPlayed = Math.max(0, p.gamesPlayed - 1);
+            }
+        });
+    });
+
+    localStorage.setItem(KEYS.MATCHES, JSON.stringify(remaining));
+    localStorage.setItem(KEYS.PLAYERS, JSON.stringify(players));
     notifyListeners();
-    if (supabase) await supabase.from('matches').delete().eq('date', d);
+    if (supabase) {
+        await Promise.all([
+            supabase.from('matches').delete().eq('date', d),
+            supabase.from('players').upsert(players)
+        ]);
+    }
 };
 export const deleteRegistrationsByDate = async (d: string) => {
     const r = getRegistrations().filter(x => x.date !== d);
