@@ -36,14 +36,17 @@ export const RegistrationPanel: React.FC<RegistrationPanelProps> = ({ currentUse
   const [addPartnerSearchTerm, setAddPartnerSearchTerm] = useState('');
   const [showAddPartnerSuggestions, setShowAddPartnerSuggestions] = useState(false);
 
+  // Added: filteredCandidates logic to fix compilation error and provide partner search results
   const filteredCandidates = allPlayers.filter(p => 
+      p.id !== currentUser.id && (
       p.name.toLowerCase().includes(partnerSearchTerm.toLowerCase()) || 
-      p.phone.includes(partnerSearchTerm)
+      p.phone.includes(partnerSearchTerm))
   ).slice(0, 5);
 
   const filteredAddPartnerCandidates = allPlayers.filter(p => 
+      p.id !== currentUser.id && (
       p.name.toLowerCase().includes(addPartnerSearchTerm.toLowerCase()) || 
-      p.phone.includes(addPartnerSearchTerm)
+      p.phone.includes(addPartnerSearchTerm))
   ).slice(0, 5);
 
   const checkAutoOpen = (state: AppState) => {
@@ -71,7 +74,7 @@ export const RegistrationPanel: React.FC<RegistrationPanelProps> = ({ currentUse
     
     const allRegs = getRegistrations();
     const playersList = getPlayers();
-    setAllPlayers(playersList.filter(p => p.id !== currentUser.id));
+    setAllPlayers(playersList); // Store all players to easily find self and partners
     
     const regsForDate = allRegs.filter(r => r.date === currentState.nextSundayDate);
     setAllTournamentRegistrations(regsForDate);
@@ -254,8 +257,15 @@ export const RegistrationPanel: React.FC<RegistrationPanelProps> = ({ currentUse
         <ul className="space-y-3">
             {myRegistrations.map(r => {
                 const isMyPartner = r.partnerId === currentUser.id;
-                const displayPartnerName = isMyPartner ? (allPlayers.find(p => p.id === r.playerId)?.name || '...') : r.partnerName;
+                const partnerId = isMyPartner ? r.playerId : r.partnerId;
+                const partnerObj = allPlayers.find(p => p.id === partnerId);
+                const displayPartnerName = isMyPartner ? (partnerObj?.name || '...') : r.partnerName;
                 const canAddPartner = !r.hasPartner && r.type === 'game' && !r.isWaitingList;
+
+                // Points calculation
+                const myFreshPoints = allPlayers.find(p => p.id === currentUser.id)?.totalPoints || 0;
+                const partnerPoints = partnerObj?.totalPoints || 0;
+                const totalSum = myFreshPoints + partnerPoints;
 
                 return (
                     <li key={r.id} className="p-3 bg-white rounded-lg shadow-sm border border-gray-100 flex flex-col gap-3 hover:shadow-md transition-shadow">
@@ -295,6 +305,28 @@ export const RegistrationPanel: React.FC<RegistrationPanelProps> = ({ currentUse
                           </button>
                         </div>
                         
+                        {/* Ranking Points Info Section */}
+                        <div className="bg-gray-50/50 p-2 rounded-lg border border-gray-100 flex flex-col gap-1.5">
+                            <div className="flex justify-between items-center text-[10px] font-bold">
+                                <span className="text-gray-400 flex items-center gap-1">
+                                    👤 Eu: <span className="text-gray-700">{myFreshPoints} pts</span>
+                                </span>
+                                {r.hasPartner && (
+                                    <span className="text-gray-400 flex items-center gap-1">
+                                        👤 Parceiro: <span className="text-gray-700">{partnerPoints} pts</span>
+                                    </span>
+                                )}
+                            </div>
+                            {r.hasPartner && (
+                                <div className="pt-1.5 border-t border-gray-100 flex justify-between items-center">
+                                    <span className="text-[10px] font-black text-padel-dark uppercase tracking-wider">Soma Total Dupla:</span>
+                                    <span className="bg-padel text-white px-2 py-0.5 rounded text-xs font-black shadow-sm">
+                                        {totalSum} pts
+                                    </span>
+                                </div>
+                            )}
+                        </div>
+
                         {canAddPartner && (
                           <div className="pt-2 border-t border-gray-50">
                             <button 
