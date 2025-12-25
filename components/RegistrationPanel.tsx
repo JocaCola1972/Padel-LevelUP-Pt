@@ -206,6 +206,64 @@ export const RegistrationPanel: React.FC<RegistrationPanelProps> = ({ currentUse
       setTimeout(() => setSuccessMsg(''), 3000);
   };
 
+  const renderMyRegistrationsList = () => (
+    <div className="bg-white/80 backdrop-blur p-4 rounded-xl border border-white/40 shadow-sm">
+        <h3 className="font-bold text-gray-700 mb-4 text-sm flex items-center gap-2">
+            <span>✅ As tuas Inscrições</span>
+            <span className="text-[10px] bg-padel/20 text-padel-dark px-2 py-0.5 rounded-full">Ativas</span>
+        </h3>
+        <ul className="space-y-3">
+            {myRegistrations.map(r => {
+                const isMyPartner = r.partnerId === currentUser.id;
+                const displayPartnerName = isMyPartner ? (allPlayers.find(p => p.id === r.playerId)?.name || '...') : r.partnerName;
+
+                return (
+                    <li key={r.id} className="p-3 bg-white rounded-lg shadow-sm border border-gray-100 flex justify-between items-center text-sm hover:shadow-md transition-shadow">
+                        <div className="flex flex-col gap-1">
+                            <div className="flex items-center gap-2">
+                                <span className="font-black text-gray-800 italic">{r.shift}</span>
+                                <span className={`text-[9px] px-1.5 py-0.5 rounded font-black uppercase tracking-wider ${r.type === 'training' ? 'bg-orange-100 text-orange-600' : 'bg-padel/10 text-padel-dark'}`}>
+                                    {r.type === 'training' ? '🎓 Treino' : '🎾 Jogo'}
+                                </span>
+                            </div>
+                            <div className="flex flex-col">
+                                {r.hasPartner ? (
+                                    <div className="text-[11px] font-bold text-gray-600 flex items-center gap-1">
+                                        <span className="text-padel">👥 Dupla com:</span>
+                                        <span className="text-gray-900">{displayPartnerName}</span>
+                                    </div>
+                                ) : (
+                                    <span className="text-[10px] text-gray-400 font-medium italic">👤 Inscrição Individual</span>
+                                )}
+                                {r.isWaitingList && (
+                                    <span className="text-[10px] font-black text-yellow-600 uppercase mt-1">⏳ Lista de Suplentes</span>
+                                )}
+                            </div>
+                        </div>
+                        <button 
+                            onClick={(e) => { 
+                                e.preventDefault(); 
+                                setCancelTarget({ type: 'single', reg: r }); 
+                                if (r.hasPartner) setShowCancelSplitModal(true); 
+                                else handleCancelEntireDupla(); 
+                            }} 
+                            className="text-red-400 hover:text-red-600 p-2 text-xs font-bold transition-colors"
+                            title="Desistir"
+                        >
+                            Desistir
+                        </button>
+                    </li>
+                );
+            })}
+            {myRegistrations.length === 0 && (
+                <li className="text-center py-4 text-gray-400 text-xs italic">
+                    Ainda não tens inscrições para esta data.
+                </li>
+            )}
+        </ul>
+    </div>
+  );
+
   // --- CLOSED STATE UI ---
   if (!appState.registrationsOpen) {
       return (
@@ -227,28 +285,8 @@ export const RegistrationPanel: React.FC<RegistrationPanelProps> = ({ currentUse
                   </p>
               </div>
 
-              {/* Still show my existing registrations even if panel is closed for new ones */}
-              {myRegistrations.length > 0 && (
-                <div className="bg-white/80 backdrop-blur p-4 rounded-xl border border-white/40 shadow-sm">
-                    <h3 className="font-bold text-gray-700 mb-3 text-sm flex items-center gap-2">
-                        <span>✅ As tuas Inscrições</span>
-                        <span className="text-[10px] bg-padel/20 text-padel-dark px-2 py-0.5 rounded-full">Ativas</span>
-                    </h3>
-                    <ul className="space-y-2">
-                        {myRegistrations.map(r => (
-                            <li key={r.id} className="p-3 bg-white rounded-lg shadow-sm border border-gray-100 flex justify-between items-center text-sm">
-                                <div className="flex flex-col">
-                                    <span className="font-bold text-gray-800">{r.shift}</span>
-                                    <span className="text-[10px] text-gray-500 uppercase font-black">{r.type === 'training' ? '🎓 Treino' : '🎾 Jogo'}</span>
-                                </div>
-                                <button onClick={(e) => { e.preventDefault(); setCancelTarget({ type: 'single', reg: r }); if (r.hasPartner) setShowCancelSplitModal(true); else handleCancelEntireDupla(); }} className="text-red-400 text-xs font-bold hover:text-red-600 transition-colors">
-                                    Desistir
-                                </button>
-                            </li>
-                        ))}
-                    </ul>
-                </div>
-              )}
+              {/* Existing registrations view */}
+              {myRegistrations.length > 0 && renderMyRegistrationsList()}
 
               {showCancelSplitModal && (
                 <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4 backdrop-blur-sm">
@@ -380,25 +418,17 @@ export const RegistrationPanel: React.FC<RegistrationPanelProps> = ({ currentUse
         </form>
         </div>
 
-        <div className="bg-white/80 backdrop-blur p-4 rounded-xl border border-white/40">
-            <h3 className="font-bold text-gray-700 mb-3 text-sm">As tuas Inscrições</h3>
-            <ul className="space-y-2">
-                {myRegistrations.map(r => (
-                    <li key={r.id} className="p-2 bg-white rounded shadow flex justify-between items-center text-sm">
-                        <span>{r.shift} ({r.type === 'training' ? '🎓' : '🎾'})</span>
-                        <button onClick={(e) => { e.preventDefault(); setCancelTarget({ type: 'single', reg: r }); if (r.hasPartner) setShowCancelSplitModal(true); else handleCancelEntireDupla(); }} className="text-red-500">Desistir</button>
-                    </li>
-                ))}
-            </ul>
-        </div>
+        {/* Improved my registrations section for the main view */}
+        {renderMyRegistrationsList()}
 
         {showCancelSplitModal && (
             <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4">
-                <div className="bg-white p-6 rounded-xl max-w-sm w-full">
-                    <h3 className="font-bold mb-4">Cancelar Inscrição</h3>
-                    <div className="space-y-2">
-                        <Button onClick={handleCancelOnlyMe} className="w-full">Apenas a minha</Button>
-                        <Button onClick={handleCancelEntireDupla} variant="danger" className="w-full">Da Dupla (Ambos)</Button>
+                <div className="bg-white p-6 rounded-xl max-w-sm w-full shadow-2xl border-t-8 border-padel">
+                    <h3 className="font-black text-gray-800 mb-2 uppercase italic">Cancelar Inscrição</h3>
+                    <p className="text-sm text-gray-500 mb-6">Como tens um parceiro associado, como desejas proceder?</p>
+                    <div className="space-y-3">
+                        <Button onClick={handleCancelOnlyMe} className="w-full py-3">Remover apenas EU</Button>
+                        <Button onClick={handleCancelEntireDupla} variant="danger" className="w-full py-3">Remover AMBOS (Dupla)</Button>
                         <Button onClick={() => setShowCancelSplitModal(false)} variant="ghost" className="w-full">Voltar</Button>
                     </div>
                 </div>
