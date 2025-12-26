@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useRef } from 'react';
 import { Player, AppState, Message } from '../types';
 import { getPlayers, savePlayer, savePlayersBulk, removePlayer, generateUUID, getAppState, resolvePasswordReset, approvePlayer, approveAllPendingPlayers, saveMessage, subscribeToChanges } from '../services/storageService';
@@ -16,6 +15,10 @@ export const MembersList: React.FC<MembersListProps> = ({ currentUser }) => {
   const [appState, setAppState] = useState<AppState>(getAppState());
   const [searchTerm, setSearchTerm] = useState('');
   
+  // Selection State
+  const [isSelectionMode, setIsSelectionMode] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+
   // Manual Add Modal State
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const [newName, setNewName] = useState('');
@@ -23,6 +26,7 @@ export const MembersList: React.FC<MembersListProps> = ({ currentUser }) => {
 
   // Delete Confirmation Modal State
   const [playerToDelete, setPlayerToDelete] = useState<Player | null>(null);
+  const [showBulkDeleteConfirm, setShowBulkDeleteConfirm] = useState(false);
   
   // Message Modal State
   const [isMessageModalOpen, setIsMessageModalOpen] = useState(false);
@@ -57,6 +61,38 @@ export const MembersList: React.FC<MembersListProps> = ({ currentUser }) => {
 
   const pendingApprovalPlayers = filteredPlayers.filter(p => p.isApproved === false);
   const activePlayers = filteredPlayers.filter(p => p.isApproved !== false);
+
+  const toggleSelectionMode = () => {
+      setIsSelectionMode(!isSelectionMode);
+      setSelectedIds(new Set());
+  };
+
+  const toggleSelectPlayer = (id: string) => {
+      const newSelected = new Set(selectedIds);
+      if (newSelected.has(id)) newSelected.delete(id);
+      else newSelected.add(id);
+      setSelectedIds(newSelected);
+  };
+
+  const selectAllActive = () => {
+      if (selectedIds.size === activePlayers.length) {
+          setSelectedIds(new Set());
+      } else {
+          setSelectedIds(new Set(activePlayers.map(p => p.id)));
+      }
+  };
+
+  const handleBulkDelete = async () => {
+      if (selectedIds.size === 0) return;
+      // Fixed line 89: Cast id to string to ensure compatibility with removePlayer.
+      for (const id of Array.from(selectedIds)) {
+          await removePlayer(id as string);
+      }
+      setIsSelectionMode(false);
+      setSelectedIds(new Set());
+      setShowBulkDeleteConfirm(false);
+      loadPlayers();
+  };
 
   const handleManualAdd = (e: React.FormEvent) => {
     e.preventDefault();
@@ -466,6 +502,42 @@ export const MembersList: React.FC<MembersListProps> = ({ currentUser }) => {
           </div>
       )}
 
+      {/* Bulk Delete Confirmation Modal */}
+      {showBulkDeleteConfirm && (
+          <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4 animate-fade-in backdrop-blur-sm">
+              <div className="bg-white rounded-xl shadow-2xl p-6 w-full max-w-sm border-t-4 border-red-500">
+                  <div className="flex flex-col items-center text-center mb-6">
+                      <div className="w-16 h-16 bg-red-100 rounded-full flex items-center justify-center mb-4 text-3xl">
+                          ⚠️
+                      </div>
+                      <h3 className="text-xl font-bold text-gray-800">Eliminar Selecionados?</h3>
+                      <p className="text-sm text-gray-500 mt-4">
+                          Estás prestes a eliminar <span className="font-black text-red-600 text-lg">{selectedIds.size}</span> utilizadores.
+                      </p>
+                      <p className="text-xs text-gray-500 mt-2">
+                          Esta ação é definitiva e removerá todos os registos destes jogadores.
+                      </p>
+                  </div>
+                  
+                  <div className="flex gap-3">
+                      <Button 
+                        variant="secondary" 
+                        onClick={() => setShowBulkDeleteConfirm(false)} 
+                        className="flex-1"
+                      >
+                        Cancelar
+                      </Button>
+                      <Button 
+                        onClick={handleBulkDelete} 
+                        className="flex-1"
+                      >
+                        Sim, Eliminar Tudo
+                      </Button>
+                  </div>
+              </div>
+          </div>
+      )}
+
       {/* Send Message Modal */}
       {isMessageModalOpen && (
           <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4 animate-fade-in backdrop-blur-sm">
@@ -528,84 +600,138 @@ export const MembersList: React.FC<MembersListProps> = ({ currentUser }) => {
 
       {/* Active Members List */}
       <div className="bg-white/95 backdrop-blur rounded-xl shadow overflow-hidden border border-white/20">
-        <div className="bg-gray-100 px-4 py-2 border-b border-gray-200 text-xs font-bold text-gray-500 uppercase flex justify-between">
-            <span>Utilizadores Ativos: {activePlayers.length}</span>
-        </div>
-        <div className="divide-y divide-gray-100">
-            {activePlayers.map(player => (
-                <div key={player.id} className="p-4 hover:bg-gray-50 flex flex-col sm:flex-row sm:items-center justify-between group transition-colors gap-3">
-                    <div className="flex items-center gap-4">
-                        <div className="w-10 h-10 rounded-full bg-padel-blue/10 border border-padel-blue/20 overflow-hidden flex-shrink-0 relative">
-                            {player.photoUrl ? (
-                                <img src={player.photoUrl} alt="" className="w-full h-full object-cover" />
-                            ) : (
-                                <div className="w-full h-full flex items-center justify-center font-bold text-padel-blue text-xs">
-                                    #{player.participantNumber}
-                                </div>
-                            )}
-                        </div>
-                        <div>
-                            <h4 className="font-bold text-gray-900 flex items-center gap-2">
-                                {player.name}
-                                {player.role === 'super_admin' && (
-                                    <span className="text-[9px] bg-purple-600 text-white px-2 py-0.5 rounded-full uppercase tracking-wide">Super Admin</span>
-                                )}
-                                {player.role === 'admin' && (
-                                    <span className="text-[9px] bg-blue-500 text-white px-2 py-0.5 rounded-full uppercase tracking-wide">Admin</span>
-                                )}
-                            </h4>
-                            <p className="text-xs text-gray-500 font-mono">#{player.participantNumber} • {player.phone}</p>
-                        </div>
-                    </div>
-                    
-                    {isAnyAdmin && (
-                        <div className="flex items-center gap-3 justify-end mt-2 sm:mt-0">
-                            {/* Message Button */}
-                            {currentUser?.id !== player.id && (
-                                <button
-                                    onClick={() => openMessageModal(player)}
-                                    className="p-2 text-gray-400 hover:text-blue-500 hover:bg-blue-50 rounded-full transition-all"
-                                    title="Enviar Mensagem"
-                                >
-                                    💬
-                                </button>
-                            )}
-
-                            {/* Super Admin Actions */}
-                            {currentUser?.role === 'super_admin' && player.id !== currentUser.id && (
-                                <>
-                                    <button
-                                        onClick={() => toggleAdminRole(player)}
-                                        className={`px-3 py-1 rounded-full text-xs font-bold transition-colors ${
-                                            player.role === 'admin' 
-                                            ? 'bg-yellow-100 text-yellow-700 hover:bg-yellow-200' 
-                                            : 'bg-blue-100 text-blue-700 hover:bg-blue-200'
-                                        }`}
-                                    >
-                                        {player.role === 'admin' ? 'Despromover' : 'Promover'}
-                                    </button>
-                                    
-                                    <button
-                                        onClick={() => resetUserPassword(player)}
-                                        className="p-2 text-gray-400 hover:text-orange-500 hover:bg-orange-50 rounded-full transition-all"
-                                        title="Reset Password"
-                                    >
-                                        🔐
-                                    </button>
-                                </>
-                            )}
-                            
+        <div className="bg-gray-100 px-4 py-3 border-b border-gray-200 text-xs font-bold text-gray-500 uppercase flex justify-between items-center">
+            <div className="flex items-center gap-3">
+                <span>Utilizadores Ativos: {activePlayers.length}</span>
+                {isSelectionMode && (
+                    <span className="bg-blue-600 text-white px-2 py-0.5 rounded-full animate-pulse">
+                        {selectedIds.size} selecionados
+                    </span>
+                )}
+            </div>
+            
+            {isAnyAdmin && (
+                <div className="flex gap-2">
+                    {isSelectionMode ? (
+                        <>
                             <button 
-                                onClick={() => setPlayerToDelete(player)}
-                                className="p-2 text-gray-300 hover:text-red-600 hover:bg-red-50 rounded-full transition-all"
-                                title="Apagar Membro"
+                                onClick={selectAllActive}
+                                className="text-blue-600 hover:text-blue-800 transition-colors px-2"
                             >
-                                🗑️
+                                {selectedIds.size === activePlayers.length ? 'Desmarcar Todos' : 'Todos'}
                             </button>
-                        </div>
+                            <button 
+                                onClick={() => setShowBulkDeleteConfirm(true)}
+                                disabled={selectedIds.size === 0}
+                                className={`font-black uppercase tracking-tighter ${selectedIds.size > 0 ? 'text-red-600' : 'text-gray-300'}`}
+                            >
+                                Eliminar ({selectedIds.size})
+                            </button>
+                            <button 
+                                onClick={toggleSelectionMode}
+                                className="text-gray-500 px-2"
+                            >
+                                Cancelar
+                            </button>
+                        </>
+                    ) : (
+                        <button 
+                            onClick={toggleSelectionMode}
+                            className="text-blue-600 hover:text-blue-800 transition-colors font-bold flex items-center gap-1"
+                        >
+                            <span>☑️ Selecionar</span>
+                        </button>
                     )}
                 </div>
-            ))}
+            )}
+        </div>
+        <div className="divide-y divide-gray-100">
+            {activePlayers.map(player => {
+                const isSelected = selectedIds.has(player.id);
+                return (
+                    <div 
+                        key={player.id} 
+                        onClick={() => isSelectionMode && toggleSelectPlayer(player.id)}
+                        className={`p-4 hover:bg-gray-50 flex flex-col sm:flex-row sm:items-center justify-between group transition-colors gap-3 cursor-default ${isSelected ? 'bg-blue-50/50 ring-1 ring-inset ring-blue-100' : ''}`}
+                    >
+                        <div className="flex items-center gap-4">
+                            {isSelectionMode && (
+                                <div className={`w-6 h-6 rounded border-2 flex items-center justify-center transition-all ${isSelected ? 'bg-blue-600 border-blue-600' : 'border-gray-300 bg-white'}`}>
+                                    {isSelected && <span className="text-white text-xs">✓</span>}
+                                </div>
+                            )}
+                            <div className="w-10 h-10 rounded-full bg-padel-blue/10 border border-padel-blue/20 overflow-hidden flex-shrink-0 relative">
+                                {player.photoUrl ? (
+                                    <img src={player.photoUrl} alt="" className="w-full h-full object-cover" />
+                                ) : (
+                                    <div className="w-full h-full flex items-center justify-center font-bold text-padel-blue text-xs">
+                                        #{player.participantNumber}
+                                    </div>
+                                )}
+                            </div>
+                            <div>
+                                <h4 className="font-bold text-gray-900 flex items-center gap-2">
+                                    {player.name}
+                                    {player.role === 'super_admin' && (
+                                        <span className="text-[9px] bg-purple-600 text-white px-2 py-0.5 rounded-full uppercase tracking-wide">Super Admin</span>
+                                    )}
+                                    {player.role === 'admin' && (
+                                        <span className="text-[9px] bg-blue-500 text-white px-2 py-0.5 rounded-full uppercase tracking-wide">Admin</span>
+                                    )}
+                                </h4>
+                                <p className="text-xs text-gray-500 font-mono">#{player.participantNumber} • {player.phone}</p>
+                            </div>
+                        </div>
+                        
+                        {!isSelectionMode && isAnyAdmin && (
+                            <div className="flex items-center gap-3 justify-end mt-2 sm:mt-0">
+                                {/* Message Button */}
+                                {currentUser?.id !== player.id && (
+                                    <button
+                                        onClick={(e) => { e.stopPropagation(); openMessageModal(player); }}
+                                        className="p-2 text-gray-400 hover:text-blue-500 hover:bg-blue-50 rounded-full transition-all"
+                                        title="Enviar Mensagem"
+                                    >
+                                        💬
+                                    </button>
+                                )}
+
+                                {/* Super Admin Actions */}
+                                {currentUser?.role === 'super_admin' && player.id !== currentUser.id && (
+                                    <>
+                                        <button
+                                            onClick={(e) => { e.stopPropagation(); toggleAdminRole(player); }}
+                                            className={`px-3 py-1 rounded-full text-xs font-bold transition-colors ${
+                                                player.role === 'admin' 
+                                                ? 'bg-yellow-100 text-yellow-700 hover:bg-yellow-200' 
+                                                : 'bg-blue-100 text-blue-700 hover:bg-blue-200'
+                                            }`}
+                                        >
+                                            {player.role === 'admin' ? 'Despromover' : 'Promover'}
+                                        </button>
+                                        
+                                        <button
+                                            onClick={(e) => { e.stopPropagation(); resetUserPassword(player); }}
+                                            className="p-2 text-gray-400 hover:text-orange-500 hover:bg-orange-50 rounded-full transition-all"
+                                            title="Reset Password"
+                                        >
+                                            🔐
+                                        </button>
+                                    </>
+                                )}
+                                
+                                <button 
+                                    onClick={(e) => { e.stopPropagation(); setPlayerToDelete(player); }}
+                                    className="p-2 text-gray-300 hover:text-red-600 hover:bg-red-50 rounded-full transition-all"
+                                    title="Apagar Membro"
+                                >
+                                    🗑️
+                                </button>
+                            </div>
+                        )}
+                    </div>
+                );
+            })}
             {activePlayers.length === 0 && (
                 <div className="p-8 text-center text-gray-400">
                     Nenhum membro ativo encontrado.
