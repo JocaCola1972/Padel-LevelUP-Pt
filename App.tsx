@@ -54,7 +54,11 @@ const App: React.FC = () => {
   }, [viewState]);
 
   useEffect(() => {
-    initCloudSync().then(() => setIsSyncing(isFirebaseConnected()));
+    // Inicializa a sincronização e carrega os dados iniciais
+    initCloudSync().then(() => {
+        setIsSyncing(isFirebaseConnected());
+    });
+    
     generateTacticalTip().then(setTip);
     
     const refreshState = () => {
@@ -71,10 +75,12 @@ const App: React.FC = () => {
 
     refreshState();
     const unsubscribe = subscribeToChanges(refreshState);
+    
+    // Removido o fetchAllData periódico de 15s para evitar sobrescrever dados locais recentes.
+    // O Realtime (WebSockets) já trata da atualização instantânea.
     const interval = setInterval(() => {
-        if (isFirebaseConnected()) fetchAllData();
         refreshState();
-    }, 15000);
+    }, 10000); 
 
     return () => { 
         unsubscribe();

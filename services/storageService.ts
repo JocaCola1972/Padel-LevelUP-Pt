@@ -78,7 +78,13 @@ export const fetchAllData = async () => {
 };
 
 const mergeAndSave = (key: string, cloudData: any[]) => {
-    localStorage.setItem(key, JSON.stringify(cloudData));
+    // Apenas guarda se os dados da nuvem não forem nulos ou vazios caso já tenhamos dados locais
+    const localData = JSON.parse(localStorage.getItem(key) || '[]');
+    if (cloudData && cloudData.length > 0) {
+        localStorage.setItem(key, JSON.stringify(cloudData));
+    } else if (localData.length === 0 && cloudData) {
+        localStorage.setItem(key, JSON.stringify(cloudData));
+    }
 };
 
 const enableRealtimeSubscriptions = () => {
