@@ -1,23 +1,27 @@
 
 import React, { useEffect, useState } from 'react';
 import { Player, Registration, AppState, Shift } from '../types';
-import { getPlayers, getRegistrations, getAppState, subscribeToChanges } from '../services/storageService';
+import { getPlayers, getRegistrations, getAppState, subscribeToChanges, isFirebaseConnected } from '../services/storageService';
 
 export const InscritosList: React.FC = () => {
   const [registrations, setRegistrations] = useState<Registration[]>([]);
   const [players, setPlayers] = useState<Player[]>([]);
   const [appState, setAppState] = useState<AppState>(getAppState());
+  const [isLive, setIsLive] = useState(isFirebaseConnected());
+  const [lastUpdate, setLastUpdate] = useState<number>(Date.now());
 
   const loadData = () => {
     setAppState(getAppState());
     setPlayers(getPlayers());
     setRegistrations(getRegistrations());
+    setIsLive(isFirebaseConnected());
+    setLastUpdate(Date.now());
   };
 
   useEffect(() => {
     loadData();
     const unsubscribe = subscribeToChanges(loadData);
-    const interval = setInterval(loadData, 5000); 
+    const interval = setInterval(loadData, 10000); 
     return () => {
         unsubscribe();
         clearInterval(interval);
@@ -46,7 +50,7 @@ export const InscritosList: React.FC = () => {
 
   const renderPlayerList = (list: { reg: Registration, player: Player | undefined }[]) => {
     return list.map((item, idx) => (
-      <div key={item.reg.id} className="p-3 flex items-center justify-between hover:bg-gray-50/50 transition-colors border-b border-gray-50 last:border-0">
+      <div key={item.reg.id} className="p-3 flex items-center justify-between hover:bg-gray-50/50 transition-colors border-b border-gray-50 last:border-0 animate-fade-in">
           <div className="flex items-center gap-3">
               <div className="w-7 h-7 rounded-full bg-padel-blue/10 text-padel-blue text-[10px] flex items-center justify-center font-black italic border border-padel-blue/20">
                   {idx + 1}º
@@ -77,21 +81,33 @@ export const InscritosList: React.FC = () => {
 
   return (
     <div className="space-y-6 pb-16 animate-fade-in">
-      <div className="bg-white/95 backdrop-blur-sm p-6 rounded-2xl shadow-lg border-l-8 border-padel flex justify-between items-center">
-        <div>
-          <h2 className="text-2xl font-black text-gray-800 italic transform -skew-x-6">
-            LISTA DE <span className="text-padel">INSCRITOS</span>
-          </h2>
-          <p className="text-sm text-gray-500 font-bold uppercase tracking-widest mt-1">
-            Domingo, {appState.nextSundayDate}
-          </p>
+      {/* Header with Live Status */}
+      <div className="bg-white/95 backdrop-blur-sm p-6 rounded-2xl shadow-lg border-l-8 border-padel relative overflow-hidden">
+        <div className="flex justify-between items-center relative z-10">
+            <div>
+            <h2 className="text-2xl font-black text-gray-800 italic transform -skew-x-6">
+                LISTA DE <span className="text-padel">INSCRITOS</span>
+            </h2>
+            <div className="flex items-center gap-2 mt-1">
+                <p className="text-sm text-gray-500 font-bold uppercase tracking-widest">
+                    Domingo, {appState.nextSundayDate}
+                </p>
+                <div className="flex items-center gap-1.5 px-2 py-0.5 bg-gray-100 rounded-full border border-gray-200">
+                    <div className={`w-1.5 h-1.5 rounded-full ${isLive ? 'bg-green-500 animate-pulse' : 'bg-red-500'}`}></div>
+                    <span className="text-[8px] font-black uppercase text-gray-500">{isLive ? 'Tempo Real' : 'Offline'}</span>
+                </div>
+            </div>
+            </div>
+            <div className="text-right">
+                <span className="block text-[10px] font-black text-gray-400 uppercase">Total Confirmados</span>
+                <span className="text-2xl font-black text-padel-blue">
+                    {activeRegistrations.filter(r => !r.isWaitingList).reduce((acc, r) => acc + (r.hasPartner ? 2 : 1), 0)}
+                </span>
+            </div>
         </div>
-        <div className="text-right">
-            <span className="block text-[10px] font-black text-gray-400 uppercase">Total Confirmados</span>
-            <span className="text-2xl font-black text-padel-blue">
-                {activeRegistrations.filter(r => !r.isWaitingList).reduce((acc, r) => acc + (r.hasPartner ? 2 : 1), 0)}
-            </span>
-        </div>
+        
+        {/* Subtle update pulse background */}
+        <div key={lastUpdate} className="absolute inset-0 bg-padel/5 animate-[shimmer_1s_ease-out_infinite] pointer-events-none opacity-0 group-data-[updated=true]:opacity-100"></div>
       </div>
 
       <div className="space-y-8">
@@ -114,7 +130,7 @@ export const InscritosList: React.FC = () => {
               .map(reg => ({ reg, player: getPlayer(reg.playerId) }));
 
           return (
-              <div key={shift} className="bg-white/90 backdrop-blur-md rounded-2xl shadow-xl overflow-hidden border border-white/20">
+              <div key={shift} className="bg-white/90 backdrop-blur-md rounded-2xl shadow-xl overflow-hidden border border-white/20 transition-all duration-500">
                   <div className="bg-gray-800 text-white p-4">
                       <h3 className="font-black italic text-lg tracking-tight uppercase">{shift}</h3>
                   </div>
@@ -207,7 +223,7 @@ export const InscritosList: React.FC = () => {
 
       <div className="text-center px-4">
           <p className="text-[10px] text-gray-400 font-bold uppercase tracking-tighter opacity-50">
-            A lista é atualizada automaticamente em tempo real
+            A lista é replicada em todos os telemóveis automaticamente
           </p>
       </div>
     </div>

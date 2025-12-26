@@ -78,14 +78,7 @@ export const fetchAllData = async () => {
 };
 
 const mergeAndSave = (key: string, cloudData: any[]) => {
-    const localData = JSON.parse(localStorage.getItem(key) || '[]');
-    const merged = [...cloudData];
-    localData.forEach((l: any) => {
-        if (!merged.find(c => c.id === l.id)) {
-            merged.push(l);
-        }
-    });
-    localStorage.setItem(key, JSON.stringify(merged));
+    localStorage.setItem(key, JSON.stringify(cloudData));
 };
 
 const enableRealtimeSubscriptions = () => {
@@ -186,7 +179,7 @@ export const addRegistration = async (reg: Registration): Promise<void> => {
                 const cleanReg = cleanRegistrationForDB(reg);
                 const { error } = await supabase.from('registrations').insert(cleanReg);
                 if (error) {
-                    console.error("Erro Supabase Inscrição Insert:", error.message, error.details, error.hint);
+                    console.error("Erro Supabase Inscrição Insert:", error.message);
                 }
             }
         } catch (e) {
