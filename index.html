@@ -3,8 +3,16 @@
 <html lang="pt">
   <head>
     <meta charset="UTF-8" />
-    <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🎾</text></svg>" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <link id="favicon" rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><circle cx=%2250%22 cy=%2250%22 r=%2245%22 fill=%22none%22 stroke=%22%231e3a8a%22 stroke-width=%225%22 opacity=%220.5%22/><path d=%22M30 70 L70 30 M70 30 L55 30 M70 30 L70 45%22 fill=%22none%22 stroke=%22%2365a30d%22 stroke-width=%228%22 stroke-linecap=%22round%22 stroke-linejoin=%22round%22/><text y=%22.9em%22 x=%220.1em%22 font-size=%2260%22>🎾</text></svg>" />
+    
+    <!-- PWA Primary Meta Tags -->
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+    <meta name="theme-color" content="#1e3a8a" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="LevelUp" />
+    <link rel="apple-touch-icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><rect width=%22100%22 height=%22100%22 fill=%22%231e3a8a%22/><text y=%22.75em%22 x=%220.1em%22 font-size=%2270%22>🎾</text></svg>" />
+    
     <title>Padel LevelUp</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script>
@@ -45,7 +53,6 @@
     </script>
     <style>
       body {
-        /* Gradiente global de baixo (escuro) para cima (claro) */
         background: linear-gradient(to top, #111827 0%, #374151 50%, #9ca3af 100%);
         background-attachment: fixed;
         margin: 0;
@@ -65,14 +72,12 @@
           padding-bottom: env(safe-area-inset-bottom);
       }
       
-      /* Placeholder para compatibilidade nos componentes */
       .auth-bg {
           position: fixed;
           inset: 0;
           z-index: -2;
       }
       
-      /* Overlay de textura/imagem - Opacidade muito baixa */
       .auth-overlay {
           position: fixed;
           inset: 0;

@@ -44,6 +44,15 @@ const App: React.FC = () => {
   const [unreadMessagesCount, setUnreadMessagesCount] = useState(0);
   const [isSyncing, setIsSyncing] = useState(false);
 
+  // Sync Favicon with App Logo
+  useEffect(() => {
+    const appState = getAppState();
+    const favicon = document.getElementById('favicon') as HTMLLinkElement;
+    if (favicon && appState.customLogo) {
+      favicon.href = appState.customLogo;
+    }
+  }, [viewState]);
+
   useEffect(() => {
     initCloudSync().then(() => setIsSyncing(isFirebaseConnected()));
     generateTacticalTip().then(setTip);
