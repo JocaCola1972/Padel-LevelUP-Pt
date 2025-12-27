@@ -78,7 +78,6 @@ export const fetchAllData = async () => {
 };
 
 const mergeAndSave = (key: string, cloudData: any[]) => {
-    // Apenas guarda se os dados da nuvem não forem nulos ou vazios caso já tenhamos dados locais
     const localData = JSON.parse(localStorage.getItem(key) || '[]');
     if (cloudData && cloudData.length > 0) {
         localStorage.setItem(key, JSON.stringify(cloudData));
@@ -147,16 +146,39 @@ const defaultState: AppState = {
 };
 
 export const getPlayers = (): Player[] => JSON.parse(localStorage.getItem(KEYS.PLAYERS) || '[]');
+
 export const savePlayer = async (player: Player): Promise<void> => {
     const players = getPlayers();
+    
+    // Garantir ID permanente ÚNICO (Participant Number) se for 0 ou nulo
+    if (!player.participantNumber || player.participantNumber === 0) {
+        const maxId = players.reduce((max, p) => Math.max(max, p.participantNumber || 0), 0);
+        player.participantNumber = maxId + 1;
+    }
+
     const idx = players.findIndex(p => p.id === player.id || p.phone === player.phone);
     if (idx >= 0) players[idx] = { ...players[idx], ...player };
     else players.push(player);
+    
     localStorage.setItem(KEYS.PLAYERS, JSON.stringify(players));
     notifyListeners();
     if (supabase) {
         const { error } = await supabase.from('players').upsert(player);
         if (error) console.error("Erro Supabase Player Upsert:", error);
+    }
+};
+
+export const updatePresence = async (playerId: string) => {
+    const players = getPlayers();
+    const idx = players.findIndex(p => p.id === playerId);
+    if (idx >= 0) {
+        const now = Date.now();
+        players[idx].lastActive = now;
+        localStorage.setItem(KEYS.PLAYERS, JSON.stringify(players));
+        // Não notificamos listeners locais aqui para evitar re-render loops infinitos, apenas se necessário
+        if (supabase) {
+            await supabase.from('players').update({ lastActive: now }).eq('id', playerId);
+        }
     }
 };
 
@@ -399,14 +421,31 @@ export const deleteAllMessagesForUser = async (uid: string) => {
 };
 export const getUnreadCount = (uid: string) => getMessages().filter(m => (m.receiverId === uid || m.receiverId === 'ALL') && !m.read).length;
 export const getPlayerByPhone = (ph: string) => getPlayers().find(p => p.phone === ph);
+
 export const savePlayersBulk = (ps: any[]) => {
     const current = getPlayers();
-    ps.forEach(p => { if(!current.find(c => c.phone === p.phone)) current.push({...p, id: generateUUID(), totalPoints:0, gamesPlayed:0, participantNumber: current.length + 1}); });
+    let maxParticipantId = current.reduce((max, p) => Math.max(max, p.participantNumber || 0), 0);
+    
+    ps.forEach(p => { 
+        if(!current.find(c => c.phone === p.phone)) {
+            maxParticipantId++;
+            current.push({
+                ...p, 
+                id: generateUUID(), 
+                totalPoints: 0, 
+                gamesPlayed: 0, 
+                participantNumber: maxParticipantId,
+                isApproved: true
+            }); 
+        }
+    });
+    
     localStorage.setItem(KEYS.PLAYERS, JSON.stringify(current));
     notifyListeners();
     if (supabase) supabase.from('players').upsert(current);
     return { added: ps.length, updated: 0 };
 };
+
 export const clearAllMessages = async () => {
     localStorage.setItem(KEYS.MESSAGES, '[]');
     notifyListeners();

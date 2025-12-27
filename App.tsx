@@ -15,7 +15,7 @@ import { NotificationModal } from './components/NotificationModal';
 import { LevelUpInfo } from './components/LevelUpInfo';
 import { ToolsPanel } from './components/ToolsPanel';
 import { generateTacticalTip } from './services/geminiService';
-import { getAppState, getUnreadCount, initCloudSync, isFirebaseConnected, subscribeToChanges, getPlayers, fetchAllData } from './services/storageService';
+import { getAppState, getUnreadCount, initCloudSync, isFirebaseConnected, subscribeToChanges, getPlayers, fetchAllData, updatePresence } from './services/storageService';
 
 enum Tab { LEVELUP = 'levelup', REGISTRATION = 'registrations', INSCRITOS = 'inscritos', MATCHES = 'matches', RANKING = 'ranking', MEMBERS = 'members', MASTERS = 'masters', ADMIN = 'admin', TOOLS = 'tools' }
 enum ViewState { LANDING = 'landing', AUTH = 'auth', APP = 'app' }
@@ -76,11 +76,13 @@ const App: React.FC = () => {
     refreshState();
     const unsubscribe = subscribeToChanges(refreshState);
     
-    // Removido o fetchAllData periódico de 15s para evitar sobrescrever dados locais recentes.
-    // O Realtime (WebSockets) já trata da atualização instantânea.
+    // Timer para Refresh Global e Presença
     const interval = setInterval(() => {
         refreshState();
-    }, 10000); 
+        if (currentUser) {
+            updatePresence(currentUser.id);
+        }
+    }, 60000); // Sincroniza presença a cada 1 minuto
 
     return () => { 
         unsubscribe();
@@ -91,6 +93,7 @@ const App: React.FC = () => {
   const handleLoginSuccess = (player: Player) => {
     localStorage.setItem(SESSION_KEY, player.id);
     setCurrentUser(player);
+    updatePresence(player.id); // Update immediately on login
     setViewState(ViewState.APP);
     setActiveTab(Tab.LEVELUP);
   };

@@ -22,6 +22,7 @@ export interface Player {
   role?: 'super_admin' | 'admin' | 'user';
   photoUrl?: string; // Base64 profile photo string
   isApproved?: boolean; // New: Requires admin approval to login
+  lastActive?: number; // Timestamp of last activity
 }
 
 export interface Registration {

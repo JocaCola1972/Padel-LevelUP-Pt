@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useRef } from 'react';
 import { Player, AppState, Message } from '../types';
 import { getPlayers, savePlayer, savePlayersBulk, removePlayer, generateUUID, getAppState, resolvePasswordReset, approvePlayer, approveAllPendingPlayers, saveMessage, subscribeToChanges } from '../services/storageService';
@@ -46,7 +47,7 @@ export const MembersList: React.FC<MembersListProps> = ({ currentUser }) => {
   useEffect(() => {
     loadPlayers();
     const unsubscribe = subscribeToChanges(loadPlayers);
-    const interval = setInterval(loadPlayers, 5000);
+    const interval = setInterval(loadPlayers, 10000); // Frequência de atualização da lista
     return () => {
         unsubscribe();
         clearInterval(interval);
@@ -61,6 +62,12 @@ export const MembersList: React.FC<MembersListProps> = ({ currentUser }) => {
 
   const pendingApprovalPlayers = filteredPlayers.filter(p => p.isApproved === false);
   const activePlayers = filteredPlayers.filter(p => p.isApproved !== false);
+
+  const isOnline = (player: Player) => {
+      if (!player.lastActive) return false;
+      const FIVE_MINUTES = 5 * 60 * 1000;
+      return (Date.now() - player.lastActive) < FIVE_MINUTES;
+  };
 
   const toggleSelectionMode = () => {
       setIsSelectionMode(!isSelectionMode);
@@ -84,7 +91,6 @@ export const MembersList: React.FC<MembersListProps> = ({ currentUser }) => {
 
   const handleBulkDelete = async () => {
       if (selectedIds.size === 0) return;
-      // Fixed line 89: Cast id to string to ensure compatibility with removePlayer.
       for (const id of Array.from(selectedIds)) {
           await removePlayer(id as string);
       }
@@ -648,6 +654,7 @@ export const MembersList: React.FC<MembersListProps> = ({ currentUser }) => {
         <div className="divide-y divide-gray-100">
             {activePlayers.map(player => {
                 const isSelected = selectedIds.has(player.id);
+                const online = isOnline(player);
                 return (
                     <div 
                         key={player.id} 
@@ -668,10 +675,17 @@ export const MembersList: React.FC<MembersListProps> = ({ currentUser }) => {
                                         #{player.participantNumber}
                                     </div>
                                 )}
+                                {/* Online indicator overlay on photo */}
+                                {online && (
+                                    <div className="absolute bottom-0 right-0 w-3 h-3 bg-green-500 border-2 border-white rounded-full animate-pulse shadow-sm"></div>
+                                )}
                             </div>
                             <div>
                                 <h4 className="font-bold text-gray-900 flex items-center gap-2">
                                     {player.name}
+                                    {online && (
+                                        <span className="text-[8px] bg-green-100 text-green-700 px-1.5 py-0.5 rounded-full font-black uppercase tracking-widest">Online</span>
+                                    )}
                                     {player.role === 'super_admin' && (
                                         <span className="text-[9px] bg-purple-600 text-white px-2 py-0.5 rounded-full uppercase tracking-wide">Super Admin</span>
                                     )}
