@@ -41,11 +41,13 @@ export const initCloudSync = async () => {
         if (!supabase) {
             supabase = createClient(SUPABASE_URL, SUPABASE_KEY, {
                 auth: { persistSession: false },
-                realtime: { params: { eventsPerSecond: 10 } }
+                realtime: { params: { eventsPerSecond: 20 } }
             });
         }
+        
         await fetchAllData();
         enableRealtimeSubscriptions();
+        
         isConnected = true;
         notifyListeners();
     } catch (e) {
@@ -85,16 +87,17 @@ export const fetchAllData = async () => {
 
 const enableRealtimeSubscriptions = () => {
     if (!supabase) return;
+    
     supabase.removeAllChannels();
-    supabase.channel('db-changes')
+
+    supabase.channel('global-sync')
         .on('postgres_changes', { event: '*', schema: 'public', table: 'players' }, handleRealtimeUpdate)
         .on('postgres_changes', { event: '*', schema: 'public', table: 'registrations' }, handleRealtimeUpdate)
         .on('postgres_changes', { event: '*', schema: 'public', table: 'matches' }, handleRealtimeUpdate)
         .on('postgres_changes', { event: '*', schema: 'public', table: 'messages' }, handleRealtimeUpdate)
         .on('postgres_changes', { event: '*', schema: 'public', table: 'settings' }, handleRealtimeUpdate)
         .subscribe((status) => {
-            if (status === 'SUBSCRIBED') isConnected = true;
-            else isConnected = false;
+            isConnected = (status === 'SUBSCRIBED');
             notifyListeners();
         });
 };
@@ -108,10 +111,8 @@ const handleRealtimeUpdate = (payload: any) => {
         if (newRecord) {
             const sKey = newRecord.key === 'appState' ? KEYS.STATE : (newRecord.key === 'masters' ? KEYS.MASTERS : null);
             if (sKey) {
-                // Merge inteligente para evitar perda de campos se o record do servidor estiver parcial
-                const local = JSON.parse(localStorage.getItem(sKey) || '{}');
-                const merged = { ...local, ...newRecord.value };
-                localStorage.setItem(sKey, JSON.stringify(merged));
+                // Sobreposição total do servidor para configurações críticas para evitar estados inconsistentes
+                localStorage.setItem(sKey, JSON.stringify(newRecord.value));
             }
         }
         notifyListeners();
@@ -127,15 +128,17 @@ const handleRealtimeUpdate = (payload: any) => {
     }
 
     let data = JSON.parse(localStorage.getItem(key) || '[]');
+    
     if (eventType === 'INSERT') {
         if (!data.find((i: any) => i.id === newRecord.id)) data.push(newRecord);
     } else if (eventType === 'UPDATE') {
         const idx = data.findIndex((i: any) => i.id === newRecord.id);
-        if (idx >= 0) data[idx] = { ...data[idx], ...newRecord };
+        if (idx >= 0) data[idx] = newRecord;
         else data.push(newRecord);
     } else if (eventType === 'DELETE') {
         data = data.filter((i: any) => i.id !== oldRecord.id);
     }
+
     localStorage.setItem(key, JSON.stringify(data));
     notifyListeners();
 };
@@ -160,8 +163,9 @@ const defaultState: AppState = {
 const syncAction = async (task: Promise<any>) => {
     isSyncing = true;
     notifyListeners();
-    try { return await task; }
-    finally {
+    try {
+        return await task;
+    } finally {
         isSyncing = false;
         notifyListeners();
     }
@@ -178,8 +182,10 @@ export const savePlayer = async (player: Player): Promise<void> => {
     const idx = players.findIndex(p => p.id === player.id || p.phone === player.phone);
     if (idx >= 0) players[idx] = { ...players[idx], ...player };
     else players.push(player);
+    
     localStorage.setItem(KEYS.PLAYERS, JSON.stringify(players));
     notifyListeners();
+
     if (supabase) await syncAction(supabase.from('players').upsert(player));
 };
 
@@ -187,6 +193,7 @@ export const savePlayersBulk = async (ps: Partial<Player>[]): Promise<{ added: n
     const current = getPlayers();
     let maxParticipantId = current.reduce((max, p) => Math.max(max, p.participantNumber || 0), 0);
     const newPlayers: Player[] = [];
+    
     ps.forEach(p => { 
         if(!current.find(c => c.phone === p.phone)) {
             maxParticipantId++;
@@ -205,6 +212,7 @@ export const savePlayersBulk = async (ps: Partial<Player>[]): Promise<{ added: n
             newPlayers.push(fullPlayer);
         }
     });
+    
     if (newPlayers.length === 0) return { added: 0, updated: 0 };
     localStorage.setItem(KEYS.PLAYERS, JSON.stringify(current));
     notifyListeners();
@@ -257,6 +265,7 @@ export const addMatch = async (match: MatchRecord, points: number): Promise<void
     const matches = getMatches();
     matches.unshift(match);
     localStorage.setItem(KEYS.MATCHES, JSON.stringify(matches));
+    
     const players = getPlayers();
     match.playerIds.forEach(pid => {
         const p = players.find(x => x.id === pid);
@@ -264,6 +273,7 @@ export const addMatch = async (match: MatchRecord, points: number): Promise<void
     });
     localStorage.setItem(KEYS.PLAYERS, JSON.stringify(players));
     notifyListeners();
+    
     if (supabase) await syncAction(Promise.all([
         supabase.from('matches').insert(match),
         supabase.from('players').upsert(players.filter(p => match.playerIds.includes(p.id)))
@@ -288,10 +298,7 @@ export const updateAppState = async (updates: Partial<AppState>): Promise<void> 
     const merged = { ...current, ...updates };
     localStorage.setItem(KEYS.STATE, JSON.stringify(merged));
     notifyListeners();
-    if (supabase) {
-        // ESSENCIAL: onConflict: 'key' garante que o Supabase atualiza a linha existente
-        await syncAction(supabase.from('settings').upsert({ key: 'appState', value: merged }, { onConflict: 'key' }));
-    }
+    if (supabase) await syncAction(supabase.from('settings').upsert({ key: 'appState', value: merged }, { onConflict: 'key' }));
 };
 
 export const saveMastersState = async (state: MastersState): Promise<void> => {

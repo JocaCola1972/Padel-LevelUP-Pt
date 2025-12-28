@@ -15,7 +15,7 @@ import { NotificationModal } from './components/NotificationModal';
 import { LevelUpInfo } from './components/LevelUpInfo';
 import { ToolsPanel } from './components/ToolsPanel';
 import { generateTacticalTip } from './services/geminiService';
-import { getAppState, getUnreadCount, initCloudSync, isFirebaseConnected, subscribeToChanges, getPlayers, updatePresence, getIsSyncing } from './services/storageService';
+import { getAppState, getUnreadCount, initCloudSync, isFirebaseConnected, subscribeToChanges, getPlayers, updatePresence, getIsSyncing, fetchAllData } from './services/storageService';
 
 enum Tab { LEVELUP = 'levelup', REGISTRATION = 'registrations', INSCRITOS = 'inscritos', MATCHES = 'matches', RANKING = 'ranking', MEMBERS = 'members', MASTERS = 'masters', ADMIN = 'admin', TOOLS = 'tools' }
 enum ViewState { LANDING = 'landing', AUTH = 'auth', APP = 'app' }
@@ -45,7 +45,6 @@ const App: React.FC = () => {
   const [isSyncing, setIsSyncing] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
 
-  // Sync Favicon with App Logo
   useEffect(() => {
     const appState = getAppState();
     const favicon = document.getElementById('favicon') as HTMLLinkElement;
@@ -55,9 +54,7 @@ const App: React.FC = () => {
   }, [viewState]);
 
   useEffect(() => {
-    // Inicializa o Realtime Engine
     initCloudSync();
-    
     generateTacticalTip().then(setTip);
     
     const refreshState = () => {
@@ -73,20 +70,26 @@ const App: React.FC = () => {
         }
     };
 
+    const handleVisibilityChange = () => {
+        if (document.visibilityState === 'visible') {
+            fetchAllData(); // Forçar refresh ao voltar à App
+        }
+    };
+
     refreshState();
     const unsubscribe = subscribeToChanges(refreshState);
     
-    // Intervalo de Presença e Saúde da Ligação
-    const interval = setInterval(() => {
-        refreshState();
-        if (currentUser) {
-            updatePresence(currentUser.id);
-        }
-    }, 45000); 
+    // Presença a cada 60s apenas para manter a lista "viva"
+    const presenceInterval = setInterval(() => {
+        if (currentUser) updatePresence(currentUser.id);
+    }, 60000); 
+
+    window.addEventListener('visibilitychange', handleVisibilityChange);
 
     return () => { 
         unsubscribe();
-        clearInterval(interval); 
+        clearInterval(presenceInterval); 
+        window.removeEventListener('visibilitychange', handleVisibilityChange);
     };
   }, [currentUser]);
 
@@ -119,10 +122,10 @@ const App: React.FC = () => {
             <div className="flex items-center gap-1.5 ml-1">
                 <div 
                     className={`w-2.5 h-2.5 rounded-full transition-all duration-300 ${isSyncing ? 'bg-green-500 shadow-[0_0_8px_#22c55e]' : 'bg-red-500 shadow-[0_0_8px_#ef4444]'}`} 
-                    title={isSyncing ? "Ligado à Nuvem" : "Offline"}
+                    title={isSyncing ? "Sincronizado" : "Ligação instável"}
                 ></div>
                 {isUploading && (
-                    <div className="w-1.5 h-1.5 bg-blue-500 rounded-full animate-ping" title="A enviar dados..."></div>
+                    <div className="w-1.5 h-1.5 bg-blue-500 rounded-full animate-ping"></div>
                 )}
             </div>
           </div>
