@@ -16,6 +16,7 @@ const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZ
 
 let supabase: SupabaseClient | null = null;
 let isConnected = false;
+let isSyncing = false;
 
 type DataChangeListener = () => void;
 const listeners: DataChangeListener[] = [];
@@ -33,11 +34,15 @@ const notifyListeners = () => {
 };
 
 export const isFirebaseConnected = () => isConnected;
+export const getIsSyncing = () => isSyncing;
 
 export const initCloudSync = async () => {
     try {
         if (!supabase) {
-            supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
+            supabase = createClient(SUPABASE_URL, SUPABASE_KEY, {
+                auth: { persistSession: false },
+                realtime: { params: { eventsPerSecond: 10 } }
+            });
         }
         await fetchAllData();
         enableRealtimeSubscriptions();
@@ -46,6 +51,7 @@ export const initCloudSync = async () => {
     } catch (e) {
         console.error("Erro ao conectar à nuvem:", e);
         isConnected = false;
+        setTimeout(initCloudSync, 5000);
     }
 };
 
@@ -53,17 +59,17 @@ export const fetchAllData = async () => {
     if (!supabase) return;
     try {
         const [p, r, m, msg, s] = await Promise.all([
-            supabase.from('players').select('*'),
+            supabase.from('players').select('*').order('participantNumber', { ascending: true }),
             supabase.from('registrations').select('*'),
-            supabase.from('matches').select('*'),
-            supabase.from('messages').select('*'),
+            supabase.from('matches').select('*').order('timestamp', { ascending: false }),
+            supabase.from('messages').select('*').order('timestamp', { ascending: false }).limit(100),
             supabase.from('settings').select('*')
         ]);
 
-        if (p.data) mergeAndSave(KEYS.PLAYERS, p.data);
-        if (r.data) mergeAndSave(KEYS.REGISTRATIONS, r.data);
-        if (m.data) mergeAndSave(KEYS.MATCHES, m.data);
-        if (msg.data) mergeAndSave(KEYS.MESSAGES, msg.data);
+        if (p.data) localStorage.setItem(KEYS.PLAYERS, JSON.stringify(p.data));
+        if (r.data) localStorage.setItem(KEYS.REGISTRATIONS, JSON.stringify(r.data));
+        if (m.data) localStorage.setItem(KEYS.MATCHES, JSON.stringify(m.data));
+        if (msg.data) localStorage.setItem(KEYS.MESSAGES, JSON.stringify(msg.data));
         
         if (s.data) {
             s.data.forEach((row: any) => {
@@ -77,27 +83,20 @@ export const fetchAllData = async () => {
     }
 };
 
-const mergeAndSave = (key: string, cloudData: any[]) => {
-    if (!cloudData) return;
-    const localData = JSON.parse(localStorage.getItem(key) || '[]');
-    
-    // Se a nuvem tem dados, ela é a fonte de verdade para garantir sincronização entre dispositivos
-    // No entanto, para evitar que dados recém-criados localmente mas não submetidos desapareçam,
-    // fazemos um merge inteligente baseado em IDs se necessário.
-    // Para simplificar e garantir replicação fiel:
-    if (cloudData.length > 0) {
-        localStorage.setItem(key, JSON.stringify(cloudData));
-    } else if (localData.length === 0) {
-        localStorage.setItem(key, JSON.stringify(cloudData));
-    }
-};
-
 const enableRealtimeSubscriptions = () => {
     if (!supabase) return;
     supabase.removeAllChannels();
-    supabase.channel('global-sync')
-        .on('postgres_changes', { event: '*', schema: 'public' }, handleRealtimeUpdate)
-        .subscribe();
+    supabase.channel('db-changes')
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'players' }, handleRealtimeUpdate)
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'registrations' }, handleRealtimeUpdate)
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'matches' }, handleRealtimeUpdate)
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'messages' }, handleRealtimeUpdate)
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'settings' }, handleRealtimeUpdate)
+        .subscribe((status) => {
+            if (status === 'SUBSCRIBED') isConnected = true;
+            else isConnected = false;
+            notifyListeners();
+        });
 };
 
 const handleRealtimeUpdate = (payload: any) => {
@@ -108,7 +107,12 @@ const handleRealtimeUpdate = (payload: any) => {
     if (tableName === 'settings') {
         if (newRecord) {
             const sKey = newRecord.key === 'appState' ? KEYS.STATE : (newRecord.key === 'masters' ? KEYS.MASTERS : null);
-            if (sKey) localStorage.setItem(sKey, JSON.stringify(newRecord.value));
+            if (sKey) {
+                // Merge inteligente para evitar perda de campos se o record do servidor estiver parcial
+                const local = JSON.parse(localStorage.getItem(sKey) || '{}');
+                const merged = { ...local, ...newRecord.value };
+                localStorage.setItem(sKey, JSON.stringify(merged));
+            }
         }
         notifyListeners();
         return;
@@ -123,9 +127,11 @@ const handleRealtimeUpdate = (payload: any) => {
     }
 
     let data = JSON.parse(localStorage.getItem(key) || '[]');
-    if (eventType === 'INSERT' || eventType === 'UPDATE') {
+    if (eventType === 'INSERT') {
+        if (!data.find((i: any) => i.id === newRecord.id)) data.push(newRecord);
+    } else if (eventType === 'UPDATE') {
         const idx = data.findIndex((i: any) => i.id === newRecord.id);
-        if (idx >= 0) data[idx] = newRecord;
+        if (idx >= 0) data[idx] = { ...data[idx], ...newRecord };
         else data.push(newRecord);
     } else if (eventType === 'DELETE') {
         data = data.filter((i: any) => i.id !== oldRecord.id);
@@ -134,7 +140,7 @@ const handleRealtimeUpdate = (payload: any) => {
     notifyListeners();
 };
 
-export const generateUUID = () => crypto.randomUUID?.() || Math.random().toString(36).substring(2);
+export const generateUUID = () => crypto.randomUUID?.() || Math.random().toString(36).substring(2) + Date.now().toString(36);
 
 const defaultState: AppState = {
   registrationsOpen: false,
@@ -151,33 +157,36 @@ const defaultState: AppState = {
   autoOpenTime: '15:00'
 };
 
+const syncAction = async (task: Promise<any>) => {
+    isSyncing = true;
+    notifyListeners();
+    try { return await task; }
+    finally {
+        isSyncing = false;
+        notifyListeners();
+    }
+};
+
 export const getPlayers = (): Player[] => JSON.parse(localStorage.getItem(KEYS.PLAYERS) || '[]');
 
 export const savePlayer = async (player: Player): Promise<void> => {
     const players = getPlayers();
-    
     if (!player.participantNumber || player.participantNumber === 0) {
         const maxId = players.reduce((max, p) => Math.max(max, p.participantNumber || 0), 0);
         player.participantNumber = maxId + 1;
     }
-
     const idx = players.findIndex(p => p.id === player.id || p.phone === player.phone);
     if (idx >= 0) players[idx] = { ...players[idx], ...player };
     else players.push(player);
-    
     localStorage.setItem(KEYS.PLAYERS, JSON.stringify(players));
     notifyListeners();
-    if (supabase) {
-        const { error } = await supabase.from('players').upsert(player);
-        if (error) console.error("Erro Supabase Player Upsert:", error);
-    }
+    if (supabase) await syncAction(supabase.from('players').upsert(player));
 };
 
 export const savePlayersBulk = async (ps: Partial<Player>[]): Promise<{ added: number, updated: number }> => {
     const current = getPlayers();
     let maxParticipantId = current.reduce((max, p) => Math.max(max, p.participantNumber || 0), 0);
     const newPlayers: Player[] = [];
-    
     ps.forEach(p => { 
         if(!current.find(c => c.phone === p.phone)) {
             maxParticipantId++;
@@ -196,50 +205,18 @@ export const savePlayersBulk = async (ps: Partial<Player>[]): Promise<{ added: n
             newPlayers.push(fullPlayer);
         }
     });
-    
     if (newPlayers.length === 0) return { added: 0, updated: 0 };
-
     localStorage.setItem(KEYS.PLAYERS, JSON.stringify(current));
     notifyListeners();
-    
-    if (supabase) {
-        // Upsert apenas os novos para evitar timeouts e conflitos de rede
-        const { error } = await supabase.from('players').upsert(newPlayers);
-        if (error) console.error("Erro ao importar jogadores na nuvem:", error);
-    }
-    
+    if (supabase) await syncAction(supabase.from('players').insert(newPlayers));
     return { added: newPlayers.length, updated: 0 };
 };
 
 export const updatePresence = async (playerId: string) => {
-    const players = getPlayers();
-    const idx = players.findIndex(p => p.id === playerId);
-    if (idx >= 0) {
-        const now = Date.now();
-        // Apenas atualizamos se tiver passado mais de 30 segundos para evitar flood no Supabase
-        const last = players[idx].lastActive || 0;
-        if (now - last > 30000) {
-            players[idx].lastActive = now;
-            localStorage.setItem(KEYS.PLAYERS, JSON.stringify(players));
-            if (supabase) {
-                await supabase.from('players').update({ lastActive: now }).eq('id', playerId);
-            }
-        }
-    }
+    if (supabase) await supabase.from('players').update({ lastActive: Date.now() }).eq('id', playerId);
 };
 
 export const getRegistrations = (): Registration[] => JSON.parse(localStorage.getItem(KEYS.REGISTRATIONS) || '[]');
-
-const cleanRegistrationForDB = (reg: Registration) => {
-    return {
-        ...reg,
-        partnerId: reg.partnerId || null,
-        partnerName: reg.partnerName || null,
-        type: reg.type || 'game',
-        isWaitingList: !!reg.isWaitingList,
-        startingCourt: reg.startingCourt || null
-    };
-};
 
 export const addRegistration = async (reg: Registration): Promise<void> => {
     const regs = getRegistrations();
@@ -247,18 +224,7 @@ export const addRegistration = async (reg: Registration): Promise<void> => {
         regs.push(reg);
         localStorage.setItem(KEYS.REGISTRATIONS, JSON.stringify(regs));
         notifyListeners();
-
-        try {
-            if (supabase) {
-                const cleanReg = cleanRegistrationForDB(reg);
-                const { error } = await supabase.from('registrations').insert(cleanReg);
-                if (error) {
-                    console.error("Erro Supabase Inscrição Insert:", error.message);
-                }
-            }
-        } catch (e) {
-            console.error("Falha crítica ao sincronizar inscrição:", e);
-        }
+        if (supabase) await syncAction(supabase.from('registrations').insert(reg));
     }
 };
 
@@ -269,10 +235,7 @@ export const updateRegistration = async (id: string, updates: Partial<Registrati
         regs[idx] = { ...regs[idx], ...updates };
         localStorage.setItem(KEYS.REGISTRATIONS, JSON.stringify(regs));
         notifyListeners();
-        if (supabase) {
-            const { error } = await supabase.from('registrations').update(updates).eq('id', id);
-            if (error) console.error("Erro Supabase Inscrição Update:", error);
-        }
+        if (supabase) await syncAction(supabase.from('registrations').update(updates).eq('id', id));
     }
 };
 
@@ -280,27 +243,20 @@ export const removeRegistration = async (id: string): Promise<void> => {
     const regs = getRegistrations().filter(r => r.id !== id);
     localStorage.setItem(KEYS.REGISTRATIONS, JSON.stringify(regs));
     notifyListeners();
-    if (supabase) {
-        const { error } = await supabase.from('registrations').delete().eq('id', id);
-        if (error) console.error("Erro Supabase Inscrição Delete:", error);
-    }
+    if (supabase) await syncAction(supabase.from('registrations').delete().eq('id', id));
 };
 
 export const clearAllRegistrations = async (): Promise<void> => {
     localStorage.setItem(KEYS.REGISTRATIONS, '[]');
     notifyListeners();
-    if (supabase) {
-        const { error } = await supabase.from('registrations').delete().neq('id', '0');
-        if (error) console.error("Erro ao limpar inscrições na nuvem:", error);
-    }
+    if (supabase) await syncAction(supabase.from('registrations').delete().neq('id', '0'));
 };
 
 export const getMatches = (): MatchRecord[] => JSON.parse(localStorage.getItem(KEYS.MATCHES) || '[]');
 export const addMatch = async (match: MatchRecord, points: number): Promise<void> => {
     const matches = getMatches();
-    matches.push(match);
+    matches.unshift(match);
     localStorage.setItem(KEYS.MATCHES, JSON.stringify(matches));
-    
     const players = getPlayers();
     match.playerIds.forEach(pid => {
         const p = players.find(x => x.id === pid);
@@ -308,57 +264,18 @@ export const addMatch = async (match: MatchRecord, points: number): Promise<void
     });
     localStorage.setItem(KEYS.PLAYERS, JSON.stringify(players));
     notifyListeners();
-    
-    if (supabase) {
-        await supabase.from('matches').insert(match);
-        await supabase.from('players').upsert(players.filter(p => match.playerIds.includes(p.id)));
-    }
-};
-
-const getPointsForResult = (result: GameResult) => {
-    switch (result) {
-        case GameResult.WIN: return 4;
-        case GameResult.DRAW: return 2;
-        case GameResult.LOSS: return 1;
-        default: return 0;
-    }
-};
-
-export const clearMatchesByShift = async (shift: Shift): Promise<void> => {
-    const matches = getMatches();
-    const toRemove = matches.filter(m => m.shift === shift);
-    const remaining = matches.filter(m => m.shift !== shift);
-    
-    const players = getPlayers();
-    toRemove.forEach(match => {
-        const pts = getPointsForResult(match.result);
-        match.playerIds.forEach(pid => {
-            const p = players.find(x => x.id === pid);
-            if (p) {
-                p.totalPoints = Math.max(0, p.totalPoints - pts);
-                p.gamesPlayed = Math.max(0, p.gamesPlayed - 1);
-            }
-        });
-    });
-
-    localStorage.setItem(KEYS.MATCHES, JSON.stringify(remaining));
-    localStorage.setItem(KEYS.PLAYERS, JSON.stringify(players));
-    notifyListeners();
-
-    if (supabase) {
-        await Promise.all([
-            supabase.from('matches').delete().eq('shift', shift),
-            supabase.from('players').upsert(players)
-        ]);
-    }
+    if (supabase) await syncAction(Promise.all([
+        supabase.from('matches').insert(match),
+        supabase.from('players').upsert(players.filter(p => match.playerIds.includes(p.id)))
+    ]));
 };
 
 export const getMessages = (): Message[] => JSON.parse(localStorage.getItem(KEYS.MESSAGES) || '[]');
 export const saveMessage = async (msg: Message): Promise<void> => {
-    const m = getMessages(); m.push(msg);
+    const m = getMessages(); m.unshift(msg);
     localStorage.setItem(KEYS.MESSAGES, JSON.stringify(m));
     notifyListeners();
-    if (supabase) await supabase.from('messages').insert(msg);
+    if (supabase) await syncAction(supabase.from('messages').insert(msg));
 };
 
 export const getAppState = (): AppState => {
@@ -367,17 +284,20 @@ export const getAppState = (): AppState => {
 };
 
 export const updateAppState = async (updates: Partial<AppState>): Promise<void> => {
-    const merged = { ...getAppState(), ...updates };
+    const current = getAppState();
+    const merged = { ...current, ...updates };
     localStorage.setItem(KEYS.STATE, JSON.stringify(merged));
     notifyListeners();
-    if (supabase) await supabase.from('settings').upsert({ key: 'appState', value: merged });
+    if (supabase) {
+        // ESSENCIAL: onConflict: 'key' garante que o Supabase atualiza a linha existente
+        await syncAction(supabase.from('settings').upsert({ key: 'appState', value: merged }, { onConflict: 'key' }));
+    }
 };
 
-export const getMastersState = (): MastersState => JSON.parse(localStorage.getItem(KEYS.MASTERS) || '{"teams":[], "matches":[], "currentPhase":1, "pool":[]}');
 export const saveMastersState = async (state: MastersState): Promise<void> => {
     localStorage.setItem(KEYS.MASTERS, JSON.stringify(state));
     notifyListeners();
-    if (supabase) await supabase.from('settings').upsert({ key: 'masters', value: state });
+    if (supabase) await syncAction(supabase.from('settings').upsert({ key: 'masters', value: state }, { onConflict: 'key' }));
 };
 
 export const approvePlayer = async (id: string) => {
@@ -390,21 +310,15 @@ export const approveAllPendingPlayers = async () => {
     p.forEach(x => x.isApproved = true);
     localStorage.setItem(KEYS.PLAYERS, JSON.stringify(p));
     notifyListeners();
-    if (supabase) await supabase.from('players').update({ isApproved: true }).eq('isApproved', false);
+    if (supabase) await syncAction(supabase.from('players').update({ isApproved: true }).eq('isApproved', false));
 };
 export const removePlayer = async (id: string) => {
     const p = getPlayers().filter(x => x.id !== id);
     localStorage.setItem(KEYS.PLAYERS, JSON.stringify(p));
     notifyListeners();
-    if (supabase) await supabase.from('players').delete().eq('id', id);
+    if (supabase) await syncAction(supabase.from('players').delete().eq('id', id));
 };
-export const requestPasswordReset = (phone: string) => {
-    const p = getPlayers().find(x => x.phone === phone);
-    if (!p) return false;
-    const req: PasswordResetRequest = { id: generateUUID(), playerId: p.id, playerName: p.name, playerPhone: p.phone, timestamp: Date.now() };
-    updateAppState({ passwordResetRequests: [...getAppState().passwordResetRequests, req] });
-    return true;
-};
+
 export const resolvePasswordReset = async (id: string, approve: boolean) => {
     const s = getAppState();
     const req = s.passwordResetRequests.find(x => x.id === id);
@@ -413,16 +327,32 @@ export const resolvePasswordReset = async (id: string, approve: boolean) => {
         const i = p.find(x => x.id === req.playerId);
         if (i) { i.password = undefined; await savePlayer(i); }
     }
-    updateAppState({ passwordResetRequests: s.passwordResetRequests.filter(x => x.id !== id) });
+    await updateAppState({ passwordResetRequests: s.passwordResetRequests.filter(x => x.id !== id) });
 };
+
+export const requestPasswordReset = async (phone: string): Promise<boolean> => {
+    const player = getPlayerByPhone(phone);
+    if (!player) return false;
+    const state = getAppState();
+    const newRequest: PasswordResetRequest = {
+        id: generateUUID(),
+        playerId: player.id,
+        playerName: player.name,
+        playerPhone: player.phone,
+        timestamp: Date.now()
+    };
+    const requests = [...(state.passwordResetRequests || []), newRequest];
+    await updateAppState({ passwordResetRequests: requests });
+    return true;
+};
+
 export const deleteMatchesByDate = async (d: string) => {
     const matches = getMatches();
     const toRemove = matches.filter(x => x.date === d);
     const remaining = matches.filter(x => x.date !== d);
-    
     const players = getPlayers();
     toRemove.forEach(match => {
-        const pts = getPointsForResult(match.result);
+        const pts = match.result === GameResult.WIN ? 4 : (match.result === GameResult.DRAW ? 2 : 1);
         match.playerIds.forEach(pid => {
             const p = players.find(x => x.id === pid);
             if (p) {
@@ -431,45 +361,73 @@ export const deleteMatchesByDate = async (d: string) => {
             }
         });
     });
-
     localStorage.setItem(KEYS.MATCHES, JSON.stringify(remaining));
     localStorage.setItem(KEYS.PLAYERS, JSON.stringify(players));
     notifyListeners();
-    if (supabase) {
-        await Promise.all([
-            supabase.from('matches').delete().eq('date', d),
-            supabase.from('players').upsert(players)
-        ]);
-    }
+    if (supabase) await syncAction(Promise.all([
+        supabase.from('matches').delete().eq('date', d),
+        supabase.from('players').upsert(players)
+    ]));
 };
+
+export const clearMatchesByShift = async (shift: Shift) => {
+    const matches = getMatches();
+    const toRemove = matches.filter(x => x.shift === shift);
+    const remaining = matches.filter(x => x.shift !== shift);
+    const players = getPlayers();
+    toRemove.forEach(match => {
+        const pts = match.result === GameResult.WIN ? 4 : (match.result === GameResult.DRAW ? 2 : 1);
+        match.playerIds.forEach(pid => {
+            const p = players.find(x => x.id === pid);
+            if (p) {
+                p.totalPoints = Math.max(0, p.totalPoints - pts);
+                p.gamesPlayed = Math.max(0, p.gamesPlayed - 1);
+            }
+        });
+    });
+    localStorage.setItem(KEYS.MATCHES, JSON.stringify(remaining));
+    localStorage.setItem(KEYS.PLAYERS, JSON.stringify(players));
+    notifyListeners();
+    if (supabase) await syncAction(Promise.all([
+        supabase.from('matches').delete().eq('shift', shift),
+        supabase.from('players').upsert(players)
+    ]));
+};
+
 export const deleteRegistrationsByDate = async (d: string) => {
     const r = getRegistrations().filter(x => x.date !== d);
     localStorage.setItem(KEYS.REGISTRATIONS, JSON.stringify(r));
     notifyListeners();
-    if (supabase) await supabase.from('registrations').delete().eq('date', d);
+    if (supabase) await syncAction(supabase.from('registrations').delete().eq('date', d));
 };
+
 export const markMessageAsRead = async (id: string) => {
     const m = getMessages();
     const i = m.find(x => x.id === id);
     if (i) { i.read = true; localStorage.setItem(KEYS.MESSAGES, JSON.stringify(m)); notifyListeners(); if (supabase) await supabase.from('messages').update({ read: true }).eq('id', id); }
 };
-export const deleteMessageForUser = async (id: string) => {
-    const m = getMessages().filter(x => x.id !== id);
+
+export const deleteMessageForUser = async (id: string): Promise<void> => {
+    let m = getMessages().filter(x => x.id !== id);
     localStorage.setItem(KEYS.MESSAGES, JSON.stringify(m));
     notifyListeners();
-    if (supabase) await supabase.from('messages').delete().eq('id', id);
+    if (supabase) await syncAction(supabase.from('messages').delete().eq('id', id));
 };
+
 export const deleteAllMessagesForUser = async (uid: string) => {
     const m = getMessages().filter(x => x.receiverId !== uid && x.receiverId !== 'ALL');
     localStorage.setItem(KEYS.MESSAGES, JSON.stringify(m));
     notifyListeners();
-    if (supabase) await supabase.from('messages').delete().eq('receiverId', uid);
+    if (supabase) await syncAction(supabase.from('messages').delete().eq('receiverId', uid));
 };
-export const getUnreadCount = (uid: string) => getMessages().filter(m => (m.receiverId === uid || m.receiverId === 'ALL') && !m.read).length;
-export const getPlayerByPhone = (ph: string) => getPlayers().find(p => p.phone === ph);
+
 export const clearAllMessages = async () => {
     localStorage.setItem(KEYS.MESSAGES, '[]');
     notifyListeners();
-    if (supabase) await supabase.from('messages').delete().neq('id', '0');
+    if (supabase) await syncAction(supabase.from('messages').delete().neq('id', '0'));
 };
+
+export const getUnreadCount = (uid: string) => getMessages().filter(m => (m.receiverId === uid || m.receiverId === 'ALL') && !m.read).length;
+export const getPlayerByPhone = (ph: string) => getPlayers().find(p => p.phone === ph);
+export const getMastersState = (): MastersState => JSON.parse(localStorage.getItem(KEYS.MASTERS) || '{"teams":[], "matches":[], "currentPhase":1, "pool":[]}');
 export const getMessagesForUser = (uid: string) => getMessages().filter(m => m.receiverId === uid || m.receiverId === 'ALL');

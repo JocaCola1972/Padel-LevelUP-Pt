@@ -104,7 +104,8 @@ export const PlayerForm: React.FC<PlayerFormProps> = ({ initialMode, onLogin, on
     setTimeout(() => switchMode('login'), 3000);
   };
 
-  const handleRecoverSubmit = (e: React.FormEvent) => {
+  // Fix: handleRecoverSubmit must be async to properly await the storage service call
+  const handleRecoverSubmit = async (e: React.FormEvent) => {
       e.preventDefault();
       setError('');
       setSuccess('');
@@ -112,7 +113,7 @@ export const PlayerForm: React.FC<PlayerFormProps> = ({ initialMode, onLogin, on
           setError('Telemóvel inválido.');
           return;
       }
-      const sent = requestPasswordReset(phone);
+      const sent = await requestPasswordReset(phone);
       if (sent) {
           setSuccess('Pedido enviado ao Super Admin.');
       } else {

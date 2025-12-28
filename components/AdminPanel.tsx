@@ -15,6 +15,7 @@ export const AdminPanel: React.FC = () => {
   const [players, setPlayers] = useState<Player[]>([]);
   const [matches, setMatches] = useState<MatchRecord[]>([]);
   const [showMessage, setShowMessage] = useState(false);
+  const [isLoading, setIsLoading] = useState(false);
 
   // Filter state for the report section
   const [reportFilterDate, setReportFilterDate] = useState<string>(getAppState().nextSundayDate);
@@ -57,13 +58,13 @@ export const AdminPanel: React.FC = () => {
     
     if (missingSections.length > 0) {
         currentOrder = [...currentOrder, ...missingSections];
-        updateAppState({ ...appState, adminSectionOrder: currentOrder });
+        updateAppState({ adminSectionOrder: currentOrder });
     }
 
     // Ensure 'finish' is removed if it somehow still exists in order
     if (currentOrder.includes('finish')) {
         currentOrder = currentOrder.filter(s => s !== 'finish');
-        updateAppState({ ...appState, adminSectionOrder: currentOrder });
+        updateAppState({ adminSectionOrder: currentOrder });
     }
 
     setState({ ...appState, adminSectionOrder: currentOrder });
@@ -81,69 +82,61 @@ export const AdminPanel: React.FC = () => {
 
   useEffect(() => {
     loadData();
+    // Apenas subscrevemos mudanças. O setInterval foi removido para evitar reversões de UI.
     const unsubscribe = subscribeToChanges(loadData);
-    const interval = setInterval(loadData, 5000); 
     return () => {
         unsubscribe();
-        clearInterval(interval);
     };
   }, []);
 
-  const toggleRegistrations = () => {
-    const newState = { ...state, registrationsOpen: !state.registrationsOpen };
-    updateAppState(newState);
-    setState(newState);
+  const toggleRegistrations = async () => {
+    if (isLoading) return;
+    setIsLoading(true);
+    try {
+        const newValue = !state.registrationsOpen;
+        await updateAppState({ registrationsOpen: newValue });
+        // O estado do componente atualizará via subscribeToChanges
+        showMessageTemporarily();
+    } finally {
+        setIsLoading(false);
+    }
+  };
+
+  const updateAutoOpenTime = async (time: string) => {
+    await updateAppState({ autoOpenTime: time });
     showMessageTemporarily();
   };
 
-  const updateAutoOpenTime = (time: string) => {
-    const newState = { ...state, autoOpenTime: time };
-    updateAppState(newState);
-    setState(newState);
-    showMessageTemporarily();
-  };
-
-  const updateCourtConfig = (shift: Shift, type: 'game' | 'training', value: number) => {
+  const updateCourtConfig = async (shift: Shift, type: 'game' | 'training', value: number) => {
     const safeValue = Math.max(0, Math.min(15, value));
-    const newState = {
-      ...state,
-      courtConfig: {
-        ...state.courtConfig,
-        [shift]: {
-          ...state.courtConfig[shift],
-          [type]: safeValue
-        }
+    const newConfig = {
+      ...state.courtConfig,
+      [shift]: {
+        ...state.courtConfig[shift],
+        [type]: safeValue
       }
     };
-    updateAppState(newState);
-    setState(newState);
+    await updateAppState({ courtConfig: newConfig });
     showMessageTemporarily();
   };
 
-  const updateGamesPerShift = (shift: Shift, count: number) => {
-    const newState = { 
-        ...state, 
-        gamesPerShift: {
-            ...state.gamesPerShift,
-            [shift]: count
-        } 
+  const updateGamesPerShift = async (shift: Shift, count: number) => {
+    const newLimits = {
+        ...state.gamesPerShift,
+        [shift]: count
     };
-    updateAppState(newState);
-    setState(newState);
+    await updateAppState({ gamesPerShift: newLimits });
     showMessageTemporarily();
   };
 
-  const updateDate = (dateStr: string) => {
-    const newState = { ...state, nextSundayDate: dateStr, isTournamentFinished: false };
-    updateAppState(newState);
-    setState(newState);
+  const updateDate = async (dateStr: string) => {
+    await updateAppState({ nextSundayDate: dateStr, isTournamentFinished: false });
     setReportFilterDate(dateStr);
     setRegFilterDate(dateStr);
     showMessageTemporarily();
-    setTimeout(loadData, 100); 
   };
 
-  const moveSection = (key: string, direction: 'up' | 'down') => {
+  const moveSection = async (key: string, direction: 'up' | 'down') => {
       const currentOrder = [...(state.adminSectionOrder || DEFAULT_ORDER)];
       const index = currentOrder.indexOf(key);
       if (index === -1) return;
@@ -153,9 +146,7 @@ export const AdminPanel: React.FC = () => {
 
       [currentOrder[index], currentOrder[newIndex]] = [currentOrder[newIndex], currentOrder[index]];
 
-      const newState = { ...state, adminSectionOrder: currentOrder };
-      updateAppState(newState);
-      setState(newState);
+      await updateAppState({ adminSectionOrder: currentOrder });
       showMessageTemporarily();
   };
 
@@ -163,41 +154,37 @@ export const AdminPanel: React.FC = () => {
       setRegToDelete({ reg, mainPlayerName: playerName });
   };
 
-  const confirmDeleteEntireRegistration = () => {
+  const confirmDeleteEntireRegistration = async () => {
       if (!regToDelete) return;
-      removeRegistration(regToDelete.reg.id);
+      await removeRegistration(regToDelete.reg.id);
       setRegToDelete(null);
-      loadData();
   };
 
-  const confirmRemovePartnerOnly = () => {
+  const confirmRemovePartnerOnly = async () => {
       if (!regToDelete) return;
-      updateRegistration(regToDelete.reg.id, {
+      await updateRegistration(regToDelete.reg.id, {
           hasPartner: false,
           partnerId: undefined,
           partnerName: undefined
       });
       setRegToDelete(null);
-      loadData();
   };
 
-  const confirmRemoveMainPlayerKeepPartner = () => {
+  const confirmRemoveMainPlayerKeepPartner = async () => {
       if (!regToDelete || !regToDelete.reg.partnerId) return;
-      updateRegistration(regToDelete.reg.id, {
+      await updateRegistration(regToDelete.reg.id, {
           playerId: regToDelete.reg.partnerId,
           hasPartner: false,
           partnerId: undefined,
           partnerName: undefined
       });
       setRegToDelete(null);
-      loadData();
   };
 
   const handleExecuteResetResults = async () => {
       if (!reportFilterDate) return;
       await deleteMatchesByDate(reportFilterDate);
       setShowResetConfirm(false);
-      loadData();
       alert("Resultados eliminados e pontos revertidos com sucesso.");
   };
   
@@ -205,7 +192,6 @@ export const AdminPanel: React.FC = () => {
       if (!regFilterDate) return;
       await deleteRegistrationsByDate(regFilterDate);
       setShowRegResetConfirm(false);
-      loadData();
       alert("Inscrições eliminadas com sucesso.");
   };
 
@@ -215,16 +201,14 @@ export const AdminPanel: React.FC = () => {
   };
 
   const getPlayerDetails = (id: string) => {
-    const p = players.find(player => player.id === id);
-    return p;
+    return players.find(player => player.id === id);
   };
 
-  const handleSetStartingCourt = (regId: string, court: number) => {
-      updateRegistration(regId, { startingCourt: court });
+  const handleSetStartingCourt = async (regId: string, court: number) => {
+      await updateRegistration(regId, { startingCourt: court });
       showMessageTemporarily();
   };
 
-  // List filtered by the UI filter date (independent from global Sunday date)
   const filteredRegistrations = registrations.filter(r => r.date === regFilterDate);
 
   const openPartnerModal = (regId: string) => {
@@ -237,15 +221,14 @@ export const AdminPanel: React.FC = () => {
       setEditRegId(null);
   };
 
-  const handleAssociatePartner = () => {
+  const handleAssociatePartner = async () => {
       if (!editRegId || !selectedPartnerForReg) return;
-      updateRegistration(editRegId, {
+      await updateRegistration(editRegId, {
           hasPartner: true,
           partnerId: selectedPartnerForReg.id,
           partnerName: selectedPartnerForReg.name
       });
       closePartnerModal();
-      loadData();
   };
 
   const filteredPartnerCandidates = players.filter(p => 
@@ -297,10 +280,8 @@ export const AdminPanel: React.FC = () => {
       XLSX.writeFile(wb, `PadelLevelUp_Resultados_${reportFilterDate}.xlsx`);
   };
 
-  const handleEndTournament = () => {
-      const newState = { ...state, isTournamentFinished: true };
-      updateAppState(newState);
-      setState(newState);
+  const handleEndTournament = async () => {
+      await updateAppState({ isTournamentFinished: true });
       setShowEndTournament(true);
   };
 
@@ -323,7 +304,7 @@ export const AdminPanel: React.FC = () => {
       }
   };
 
-  const handleAdminNewReg = () => {
+  const handleAdminNewReg = async () => {
       if (!newRegP1) return;
       
       const newReg: Registration = {
@@ -338,12 +319,11 @@ export const AdminPanel: React.FC = () => {
           isWaitingList: false
       };
 
-      addRegistration(newReg);
+      await addRegistration(newReg);
       alert("Inscrição criada com sucesso pelo Administrador.");
       setIsNewRegModalOpen(false);
       setNewRegP1(null);
       setNewRegP2(null);
-      loadData();
   };
 
   const renderSection = (key: string) => {
@@ -395,13 +375,16 @@ export const AdminPanel: React.FC = () => {
                                 <div className="flex flex-col gap-2">
                                     <button
                                         onClick={toggleRegistrations}
-                                        className={`px-6 py-2 rounded-full font-bold transition-colors ${
+                                        disabled={isLoading}
+                                        className={`px-6 py-2 rounded-full font-bold transition-all ${
+                                            isLoading ? 'opacity-50 grayscale' : ''
+                                        } ${
                                             state.registrationsOpen 
                                                 ? 'bg-red-500 text-white hover:bg-red-600 shadow-red-200' 
                                                 : 'bg-green-500 text-white hover:bg-green-600 shadow-green-200'
                                         }`}
                                     >
-                                        {state.registrationsOpen ? 'Fechar Inscrições' : 'Abrir Inscrições'}
+                                        {isLoading ? 'A gravar...' : state.registrationsOpen ? 'Fechar Inscrições' : 'Abrir Inscrições'}
                                     </button>
                                 </div>
                             </div>
@@ -444,7 +427,6 @@ export const AdminPanel: React.FC = () => {
                             </div>
                         </div>
 
-                        {/* Merged 'Finalizar Evento' Area */}
                         <div className="p-4 bg-purple-50 rounded-lg border border-purple-100 mt-4">
                             <div className="flex flex-col md:flex-row justify-between items-center gap-4">
                                 <div>
@@ -699,7 +681,6 @@ export const AdminPanel: React.FC = () => {
                                     {shiftRegs.map(reg => {
                                         const player = getPlayerDetails(reg.playerId);
                                         const partner = reg.partnerId ? getPlayerDetails(reg.partnerId) : null;
-                                        
                                         const p1Points = player?.totalPoints || 0;
                                         const p2Points = partner?.totalPoints || 0;
                                         const totalPoints = p1Points + p2Points;
@@ -723,7 +704,6 @@ export const AdminPanel: React.FC = () => {
                                                             {reg.hasPartner && <span className="text-gray-300 mx-0.5">+</span>}
                                                             {reg.hasPartner && <span className="text-[10px] font-black text-gray-600">{p2Points}</span>}
                                                         </div>
-
                                                         {reg.hasPartner ? (
                                                             <div className="flex items-center gap-1 bg-padel/10 px-2 py-0.5 rounded border border-padel/20">
                                                                 <span className="text-[9px] font-black text-padel-dark uppercase tracking-tight">Total:</span>
@@ -732,7 +712,6 @@ export const AdminPanel: React.FC = () => {
                                                         ) : (
                                                             <span className="text-[9px] text-gray-400 italic">Individual</span>
                                                         )}
-
                                                         {reg.type === 'training' && (
                                                             <span className="text-[9px] bg-orange-100 text-orange-800 px-1.5 rounded uppercase font-bold tracking-wide">
                                                                 Treino
@@ -740,9 +719,7 @@ export const AdminPanel: React.FC = () => {
                                                         )}
                                                     </div>
                                                 </div>
-                                                
                                                 <div className="flex items-center gap-4">
-                                                    {/* Starting Court Selection */}
                                                     {!reg.isWaitingList && reg.type === 'game' && courtOptions.length > 0 && (
                                                         <div className="flex flex-col items-end">
                                                             <label className="text-[8px] font-bold text-gray-400 uppercase leading-none mb-1">Campo Inicial</label>
@@ -756,7 +733,6 @@ export const AdminPanel: React.FC = () => {
                                                             </select>
                                                         </div>
                                                     )}
-
                                                     <div className="flex gap-1">
                                                         {!reg.hasPartner && (
                                                             <button 
@@ -803,10 +779,8 @@ export const AdminPanel: React.FC = () => {
         </div>
       )}
 
-      {/* Render Dynamic Sections Order */}
       {(state.adminSectionOrder || DEFAULT_ORDER).map(key => renderSection(key))}
 
-      {/* Admin New Registration Modal */}
       {isNewRegModalOpen && (
           <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4 animate-fade-in">
               <div className="bg-white rounded-xl shadow-2xl p-6 w-full max-w-md overflow-y-auto max-h-[90vh]">
@@ -835,8 +809,6 @@ export const AdminPanel: React.FC = () => {
                               >Treino</button>
                           </div>
                       </div>
-
-                      {/* Player 1 Selection */}
                       <div>
                           <label className="block text-xs font-bold text-gray-500 mb-1">Jogador 1 (Responsável)</label>
                           <input 
@@ -862,8 +834,6 @@ export const AdminPanel: React.FC = () => {
                               </div>
                           )}
                       </div>
-
-                      {/* Player 2 Selection (Optional for game) */}
                       {newRegType === 'game' && (
                           <div>
                               <label className="block text-xs font-bold text-gray-500 mb-1">Jogador 2 (Parceiro - Opcional)</label>
@@ -900,7 +870,6 @@ export const AdminPanel: React.FC = () => {
           </div>
       )}
 
-      {/* Admin Partner Selection Modal (from Existing List) */}
       {editRegId && (
           <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4 animate-fade-in">
               <div className="bg-white rounded-xl shadow-2xl p-6 w-full max-w-sm">
@@ -935,7 +904,6 @@ export const AdminPanel: React.FC = () => {
           </div>
       )}
 
-      {/* Delete Registration Confirmation Modal (Admin) - MODIFIED FOR SPLIT WITHDRAWAL */}
       {regToDelete && (
           <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4 animate-fade-in backdrop-blur-sm">
               <div className="bg-white rounded-xl shadow-2xl p-6 w-full max-w-sm border-t-4 border-red-500">
@@ -988,7 +956,6 @@ export const AdminPanel: React.FC = () => {
           </div>
       )}
 
-      {/* RESET RESULTS CONFIRMATION MODAL: Mensagem do LevelUP */}
       {showResetConfirm && (
           <div className="fixed inset-0 bg-black/70 z-[100] flex items-center justify-center p-4 backdrop-blur-sm animate-fade-in">
               <div className="bg-white rounded-2xl shadow-2xl w-full max-sm overflow-hidden border-t-8 border-red-600">
@@ -1028,7 +995,6 @@ export const AdminPanel: React.FC = () => {
           </div>
       )}
       
-      {/* RESET REGISTRATIONS CONFIRMATION MODAL: Mensagem do LevelUP */}
       {showRegResetConfirm && (
           <div className="fixed inset-0 bg-black/70 z-[100] flex items-center justify-center p-4 backdrop-blur-sm animate-fade-in">
               <div className="bg-white rounded-2xl shadow-2xl w-full max-sm overflow-hidden border-t-8 border-red-600">
@@ -1068,7 +1034,6 @@ export const AdminPanel: React.FC = () => {
           </div>
       )}
 
-      {/* End Tournament Modal */}
       {showEndTournament && (
           <div className="fixed inset-0 bg-black/80 z-50 flex items-center justify-center p-4 animate-fade-in backdrop-blur-sm overflow-y-auto">
               <div className="bg-white rounded-2xl shadow-2xl w-full max-w-5xl my-8 flex flex-col max-h-[90vh]">

@@ -15,7 +15,7 @@ import { NotificationModal } from './components/NotificationModal';
 import { LevelUpInfo } from './components/LevelUpInfo';
 import { ToolsPanel } from './components/ToolsPanel';
 import { generateTacticalTip } from './services/geminiService';
-import { getAppState, getUnreadCount, initCloudSync, isFirebaseConnected, subscribeToChanges, getPlayers, fetchAllData, updatePresence } from './services/storageService';
+import { getAppState, getUnreadCount, initCloudSync, isFirebaseConnected, subscribeToChanges, getPlayers, updatePresence, getIsSyncing } from './services/storageService';
 
 enum Tab { LEVELUP = 'levelup', REGISTRATION = 'registrations', INSCRITOS = 'inscritos', MATCHES = 'matches', RANKING = 'ranking', MEMBERS = 'members', MASTERS = 'masters', ADMIN = 'admin', TOOLS = 'tools' }
 enum ViewState { LANDING = 'landing', AUTH = 'auth', APP = 'app' }
@@ -43,6 +43,7 @@ const App: React.FC = () => {
   const [isNotificationsOpen, setIsNotificationsOpen] = useState(false);
   const [unreadMessagesCount, setUnreadMessagesCount] = useState(0);
   const [isSyncing, setIsSyncing] = useState(false);
+  const [isUploading, setIsUploading] = useState(false);
 
   // Sync Favicon with App Logo
   useEffect(() => {
@@ -54,15 +55,14 @@ const App: React.FC = () => {
   }, [viewState]);
 
   useEffect(() => {
-    // Inicializa a sincronização e carrega os dados iniciais
-    initCloudSync().then(() => {
-        setIsSyncing(isFirebaseConnected());
-    });
+    // Inicializa o Realtime Engine
+    initCloudSync();
     
     generateTacticalTip().then(setTip);
     
     const refreshState = () => {
         setIsSyncing(isFirebaseConnected());
+        setIsUploading(getIsSyncing());
         if (currentUser) {
             setUnreadMessagesCount(getUnreadCount(currentUser.id));
             const players = getPlayers();
@@ -76,13 +76,13 @@ const App: React.FC = () => {
     refreshState();
     const unsubscribe = subscribeToChanges(refreshState);
     
-    // Timer para Refresh Global e Presença
+    // Intervalo de Presença e Saúde da Ligação
     const interval = setInterval(() => {
         refreshState();
         if (currentUser) {
             updatePresence(currentUser.id);
         }
-    }, 60000); // Sincroniza presença a cada 1 minuto
+    }, 45000); 
 
     return () => { 
         unsubscribe();
@@ -93,7 +93,7 @@ const App: React.FC = () => {
   const handleLoginSuccess = (player: Player) => {
     localStorage.setItem(SESSION_KEY, player.id);
     setCurrentUser(player);
-    updatePresence(player.id); // Update immediately on login
+    updatePresence(player.id);
     setViewState(ViewState.APP);
     setActiveTab(Tab.LEVELUP);
   };
@@ -112,14 +112,19 @@ const App: React.FC = () => {
 
   return (
     <div className="min-h-screen pb-24">
-      <header className="bg-white/95 backdrop-blur shadow-sm sticky top-0 z-10 border-b border-gray-200">
+      <header className="bg-white/95 backdrop-blur shadow-sm sticky top-0 z-30 border-b border-gray-200">
         <div className="max-w-md mx-auto px-4 py-3 flex justify-between items-center">
           <div className="flex items-center gap-2">
             <h1 className="text-xl font-black italic text-padel-dark transform -skew-x-6">Padel LevelUp</h1>
-            <div 
-                className={`w-2.5 h-2.5 rounded-full transition-all duration-500 ${isSyncing ? 'bg-green-500 shadow-[0_0_8px_#22c55e]' : 'bg-red-500 shadow-[0_0_8px_#ef4444]'}`} 
-                title={isSyncing ? "Ligado à Nuvem" : "A tentar ligar..."}
-            ></div>
+            <div className="flex items-center gap-1.5 ml-1">
+                <div 
+                    className={`w-2.5 h-2.5 rounded-full transition-all duration-300 ${isSyncing ? 'bg-green-500 shadow-[0_0_8px_#22c55e]' : 'bg-red-500 shadow-[0_0_8px_#ef4444]'}`} 
+                    title={isSyncing ? "Ligado à Nuvem" : "Offline"}
+                ></div>
+                {isUploading && (
+                    <div className="w-1.5 h-1.5 bg-blue-500 rounded-full animate-ping" title="A enviar dados..."></div>
+                )}
+            </div>
           </div>
           <div className="flex items-center gap-3">
               <button onClick={() => setIsNotificationsOpen(true)} className="relative p-2 text-2xl">🔔
@@ -157,7 +162,7 @@ const App: React.FC = () => {
         {activeTab === Tab.ADMIN && isAdmin && <AdminPanel />}
       </main>
 
-      <nav className="fixed bottom-0 left-0 right-0 bg-white/95 backdrop-blur border-t z-20 pb-safe shadow-lg flex overflow-x-auto no-scrollbar items-center px-2">
+      <nav className="fixed bottom-0 left-0 right-0 bg-white/95 backdrop-blur border-t z-30 pb-safe shadow-lg flex overflow-x-auto no-scrollbar items-center px-2">
           <NavButton active={activeTab === Tab.LEVELUP} onClick={() => setActiveTab(Tab.LEVELUP)} icon="🚀" label="LEVELUP" />
           <NavButton active={activeTab === Tab.REGISTRATION} onClick={() => setActiveTab(Tab.REGISTRATION)} icon="📝" label="Insc." />
           <NavButton active={activeTab === Tab.INSCRITOS} onClick={() => setActiveTab(Tab.INSCRITOS)} icon="📋" label="Lista" />

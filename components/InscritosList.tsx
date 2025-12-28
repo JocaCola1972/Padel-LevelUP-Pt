@@ -21,11 +21,8 @@ export const InscritosList: React.FC = () => {
   useEffect(() => {
     loadData();
     const unsubscribe = subscribeToChanges(loadData);
-    const interval = setInterval(loadData, 10000); 
-    return () => {
-        unsubscribe();
-        clearInterval(interval);
-    };
+    // Removemos o polling de 10s porque o subscribeToChanges já apanha os updates do Realtime
+    return () => unsubscribe();
   }, []);
 
   const activeRegistrations = registrations.filter(r => r.date === appState.nextSundayDate);
@@ -81,7 +78,6 @@ export const InscritosList: React.FC = () => {
 
   return (
     <div className="space-y-6 pb-16 animate-fade-in">
-      {/* Header with Live Status */}
       <div className="bg-white/95 backdrop-blur-sm p-6 rounded-2xl shadow-lg border-l-8 border-padel relative overflow-hidden">
         <div className="flex justify-between items-center relative z-10">
             <div>
@@ -94,20 +90,18 @@ export const InscritosList: React.FC = () => {
                 </p>
                 <div className="flex items-center gap-1.5 px-2 py-0.5 bg-gray-100 rounded-full border border-gray-200">
                     <div className={`w-1.5 h-1.5 rounded-full ${isLive ? 'bg-green-500 animate-pulse' : 'bg-red-500'}`}></div>
-                    <span className="text-[8px] font-black uppercase text-gray-500">{isLive ? 'Tempo Real' : 'Offline'}</span>
+                    <span className="text-[8px] font-black uppercase text-gray-500">{isLive ? 'Tempo Real' : 'Desligado'}</span>
                 </div>
             </div>
             </div>
             <div className="text-right">
-                <span className="block text-[10px] font-black text-gray-400 uppercase">Total Confirmados</span>
+                <span className="block text-[10px] font-black text-gray-400 uppercase">Confirmados</span>
                 <span className="text-2xl font-black text-padel-blue">
                     {activeRegistrations.filter(r => !r.isWaitingList).reduce((acc, r) => acc + (r.hasPartner ? 2 : 1), 0)}
                 </span>
             </div>
         </div>
-        
-        {/* Subtle update pulse background */}
-        <div key={lastUpdate} className="absolute inset-0 bg-padel/5 animate-[shimmer_1s_ease-out_infinite] pointer-events-none opacity-0 group-data-[updated=true]:opacity-100"></div>
+        <div key={lastUpdate} className="absolute inset-0 bg-padel/5 animate-[shimmer_1s_ease-out_infinite] pointer-events-none opacity-0"></div>
       </div>
 
       <div className="space-y-8">
@@ -130,13 +124,12 @@ export const InscritosList: React.FC = () => {
               .map(reg => ({ reg, player: getPlayer(reg.playerId) }));
 
           return (
-              <div key={shift} className="bg-white/90 backdrop-blur-md rounded-2xl shadow-xl overflow-hidden border border-white/20 transition-all duration-500">
+              <div key={shift} className="bg-white/90 backdrop-blur-md rounded-2xl shadow-xl overflow-hidden border border-white/20 transition-all duration-300">
                   <div className="bg-gray-800 text-white p-4">
                       <h3 className="font-black italic text-lg tracking-tight uppercase">{shift}</h3>
                   </div>
 
                   <div className="p-4 space-y-6">
-                      {/* Secção de JOGOS */}
                       {gameCap > 0 && (
                           <div className="space-y-3">
                               <div className="flex justify-between items-end">
@@ -164,12 +157,11 @@ export const InscritosList: React.FC = () => {
                           </div>
                       )}
 
-                      {/* Secção de TREINO */}
                       {trainCap > 0 && (
                           <div className="space-y-3 pt-4 border-t border-gray-100">
                               <div className="flex justify-between items-end">
                                   <h4 className="text-xs font-black text-orange-600 uppercase tracking-widest flex items-center gap-2">
-                                      <span className="text-lg">🎓</span> TREINO / AULAS
+                                      <span className="text-lg">🎓</span> TREINO
                                   </h4>
                                   <div className="text-right">
                                       <span className="text-[10px] font-bold text-gray-400 uppercase block">{trainOcc} / {trainCap} Vagas</span>
@@ -192,7 +184,6 @@ export const InscritosList: React.FC = () => {
                           </div>
                       )}
 
-                      {/* Lista de Suplentes */}
                       {waitingList.length > 0 && (
                           <div className="bg-yellow-50/80 p-4 rounded-xl border border-yellow-100 mt-4">
                               <h4 className="text-[10px] font-black text-yellow-700 uppercase tracking-[0.2em] mb-3 flex items-center gap-2">
@@ -219,12 +210,6 @@ export const InscritosList: React.FC = () => {
               </div>
           );
         })}
-      </div>
-
-      <div className="text-center px-4">
-          <p className="text-[10px] text-gray-400 font-bold uppercase tracking-tighter opacity-50">
-            A lista é replicada em todos os telemóveis automaticamente
-          </p>
       </div>
     </div>
   );
