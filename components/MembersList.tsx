@@ -37,6 +37,7 @@ export const MembersList: React.FC<MembersListProps> = ({ currentUser }) => {
   // File Import State
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [importStatus, setImportStatus] = useState('');
+  const [isImporting, setIsImporting] = useState(false);
 
   const loadPlayers = () => {
     const data = getPlayers();
@@ -47,7 +48,7 @@ export const MembersList: React.FC<MembersListProps> = ({ currentUser }) => {
   useEffect(() => {
     loadPlayers();
     const unsubscribe = subscribeToChanges(loadPlayers);
-    const interval = setInterval(loadPlayers, 10000); // Frequência de atualização da lista
+    const interval = setInterval(loadPlayers, 15000); 
     return () => {
         unsubscribe();
         clearInterval(interval);
@@ -100,7 +101,7 @@ export const MembersList: React.FC<MembersListProps> = ({ currentUser }) => {
       loadPlayers();
   };
 
-  const handleManualAdd = (e: React.FormEvent) => {
+  const handleManualAdd = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newName || newPhone.length < 9) {
         alert("Preencha o nome e um telemóvel válido.");
@@ -118,23 +119,23 @@ export const MembersList: React.FC<MembersListProps> = ({ currentUser }) => {
         isApproved: true // Manually added by admin = Approved
     };
 
-    savePlayer(newPlayer);
+    await savePlayer(newPlayer);
     setNewName('');
     setNewPhone('');
     setIsAddModalOpen(false);
     loadPlayers();
   };
 
-  const confirmDelete = () => {
+  const confirmDelete = async () => {
       if (playerToDelete) {
-          removePlayer(playerToDelete.id);
+          await removePlayer(playerToDelete.id);
           loadPlayers();
           setPlayerToDelete(null);
       }
   };
 
   // Role Management (Super Admin Only)
-  const toggleAdminRole = (player: Player) => {
+  const toggleAdminRole = async (player: Player) => {
       if (currentUser?.role !== 'super_admin') return;
       if (player.id === currentUser.id) {
           alert("Não podes alterar o teu próprio papel aqui.");
@@ -143,24 +144,24 @@ export const MembersList: React.FC<MembersListProps> = ({ currentUser }) => {
 
       const newRole = player.role === 'admin' ? 'user' : 'admin';
       const updatedPlayer = { ...player, role: newRole as any }; // Cast because enum strictness
-      savePlayer(updatedPlayer);
+      await savePlayer(updatedPlayer);
       loadPlayers();
   };
 
   // Reset Password (Super Admin Only)
-  const resetUserPassword = (player: Player) => {
+  const resetUserPassword = async (player: Player) => {
       if (currentUser?.role !== 'super_admin') return;
       if (window.confirm(`Tem a certeza que deseja remover a password de ${player.name}?`)) {
           const updatedPlayer = { ...player, password: undefined };
-          savePlayer(updatedPlayer);
+          await savePlayer(updatedPlayer);
           loadPlayers();
           alert("Password removida com sucesso.");
       }
   };
 
   // Approval Logic
-  const handleApprove = (player: Player) => {
-      approvePlayer(player.id);
+  const handleApprove = async (player: Player) => {
+      await approvePlayer(player.id);
       loadPlayers();
   };
 
@@ -171,9 +172,9 @@ export const MembersList: React.FC<MembersListProps> = ({ currentUser }) => {
       }
   };
 
-  const handleReject = (player: Player) => {
+  const handleReject = async (player: Player) => {
       if (window.confirm(`Tens a certeza que desejas REPROVAR a inscrição de ${player.name}? O registo será apagado.`)) {
-          removePlayer(player.id);
+          await removePlayer(player.id);
           loadPlayers();
       }
   };
@@ -185,7 +186,7 @@ export const MembersList: React.FC<MembersListProps> = ({ currentUser }) => {
       setIsMessageModalOpen(true);
   };
 
-  const handleSendMessage = () => {
+  const handleSendMessage = async () => {
       if (!currentUser || !messageContent.trim()) return;
 
       const newMessage: Message = {
@@ -198,15 +199,15 @@ export const MembersList: React.FC<MembersListProps> = ({ currentUser }) => {
           read: false
       };
 
-      saveMessage(newMessage);
+      await saveMessage(newMessage);
       alert("Mensagem enviada com sucesso!");
       setIsMessageModalOpen(false);
   };
 
   // Handle Requests
-  const handleResolveRequest = (reqId: string, approve: boolean) => {
-      resolvePasswordReset(reqId, approve);
-      loadPlayers(); // Refresh list and state
+  const handleResolveRequest = async (reqId: string, approve: boolean) => {
+      await resolvePasswordReset(reqId, approve);
+      loadPlayers(); 
   };
 
   // Export Function
@@ -247,31 +248,32 @@ export const MembersList: React.FC<MembersListProps> = ({ currentUser }) => {
     if (!file) return;
 
     setImportStatus('A ler ficheiro...');
+    setIsImporting(true);
     
     const reader = new FileReader();
     
-    reader.onload = (evt) => {
+    reader.onload = async (evt) => {
         try {
             const data = evt.target?.result;
             if (!data) return;
 
-            // Using SheetJS to parse
             const workbook = XLSX.read(data, { type: 'binary' });
             const sheetName = workbook.SheetNames[0];
             const sheet = workbook.Sheets[sheetName];
-            const jsonData = XLSX.utils.sheet_to_json(sheet, { header: 1 }); // Array of arrays
+            const jsonData = XLSX.utils.sheet_to_json(sheet, { header: 1 }); 
 
             if (jsonData.length < 1) {
                 setImportStatus('Ficheiro vazio.');
+                setIsImporting(false);
                 return;
             }
 
             const rows = jsonData as any[][];
             let nameIdx = 0;
             let phoneIdx = 1;
-            let startRow = 1; // Default skip header row (index 0)
+            let startRow = 1; 
 
-            // 1. Detect Headers
+            // Detect Headers
             const headerRow = rows[0].map((c: any) => String(c).toLowerCase().trim());
             const foundNameIdx = headerRow.findIndex((h: string) => h.includes('nome') || h.includes('name') || h.includes('jogador') || h.includes('participante'));
             const foundPhoneIdx = headerRow.findIndex((h: string) => h.includes('telem') || h.includes('phone') || h.includes('contac') || h.includes('celular') || h.includes('movel'));
@@ -302,25 +304,27 @@ export const MembersList: React.FC<MembersListProps> = ({ currentUser }) => {
                     playersToImport.push({
                         name: rawName,
                         phone: rawPhone,
-                        isApproved: true // Imported = Approved
+                        isApproved: true 
                     });
                 }
             }
 
             if (playersToImport.length > 0) {
-                const result = savePlayersBulk(playersToImport);
-                setImportStatus(`Importação concluída: ${result.added} novos, ${result.updated} atualizados.`);
+                setImportStatus(`A importar ${playersToImport.length} membros na nuvem...`);
+                const result = await savePlayersBulk(playersToImport);
+                setImportStatus(`Importação concluída: ${result.added} novos jogadores registados.`);
                 loadPlayers();
             } else {
-                setImportStatus('Nenhum jogador válido encontrado no ficheiro. Verifique se tem colunas "Nome" e "Telemóvel".');
+                setImportStatus('Nenhum jogador válido encontrado no ficheiro.');
             }
 
         } catch (error) {
             console.error(error);
-            setImportStatus('Erro ao processar ficheiro. Verifique o formato.');
+            setImportStatus('Erro ao processar ficheiro.');
         } finally {
+            setIsImporting(false);
             if (fileInputRef.current) fileInputRef.current.value = '';
-            setTimeout(() => setImportStatus(''), 5000);
+            setTimeout(() => setImportStatus(''), 8000);
         }
     };
     reader.readAsBinaryString(file);
@@ -357,9 +361,10 @@ export const MembersList: React.FC<MembersListProps> = ({ currentUser }) => {
                             ref={fileInputRef}
                             className="hidden"
                             onChange={handleFileChange}
+                            disabled={isImporting}
                         />
-                        <Button variant="secondary" onClick={() => fileInputRef.current?.click()}>
-                            📥 Importar
+                        <Button variant="secondary" onClick={() => fileInputRef.current?.click()} isLoading={isImporting}>
+                            {isImporting ? 'A Importar...' : '📥 Importar'}
                         </Button>
                     </div>
 

@@ -5,6 +5,7 @@ import { getAppState } from '../services/storageService';
 export const LevelUpInfo: React.FC = () => {
     const state = getAppState();
     const [isExpanded, setIsExpanded] = useState(false);
+    const [isGdprExpanded, setIsGdprExpanded] = useState(false);
 
     return (
         <div className="space-y-6 animate-fade-in pb-10">
@@ -168,6 +169,49 @@ export const LevelUpInfo: React.FC = () => {
                             <span className="text-[10px] font-black uppercase tracking-widest text-padel hover:text-padel-dark transition-colors">
                                 {isExpanded ? 'Ler menos ↑' : 'Ler história completa ↓'}
                             </span>
+                        </div>
+                    </div>
+                </div>
+
+                {/* GDPR - DISCRETE COLLAPSIBLE CARD */}
+                <div className="bg-gray-50/50 rounded-xl border border-gray-200 flex flex-col overflow-hidden transition-all duration-300">
+                    <div 
+                        className="p-4 flex items-center justify-between cursor-pointer hover:bg-gray-100 transition-colors"
+                        onClick={() => setIsGdprExpanded(!isGdprExpanded)}
+                    >
+                        <div className="flex items-center gap-3">
+                            <span className="text-gray-400 text-lg">🛡️</span>
+                            <h3 className="font-bold text-gray-500 uppercase text-[10px] tracking-widest">Proteção de Dados e Privacidade (GDPR)</h3>
+                        </div>
+                        <div className={`text-xs text-gray-400 transition-transform duration-500 ${isGdprExpanded ? 'rotate-180' : ''}`}>
+                            <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                            </svg>
+                        </div>
+                    </div>
+                    
+                    <div className={`grid transition-all duration-500 ease-in-out ${isGdprExpanded ? 'grid-rows-[1fr] opacity-100' : 'grid-rows-[0fr] opacity-0'}`}>
+                        <div className="overflow-hidden px-4 pb-4">
+                            <div className="text-[10px] text-gray-500 leading-relaxed space-y-3">
+                                <p>
+                                    A sua privacidade é importante para nós. Esta aplicação cumpre as disposições do Regulamento Geral de Proteção de Dados (RGPD), garantindo que os seus dados pessoais são tratados de forma legal, leal e transparente, apenas para fins legítimos e necessários.
+                                </p>
+                                
+                                <div>
+                                    <p className="font-bold text-gray-700 uppercase tracking-tighter mb-1">Direitos do Utilizador</p>
+                                    <ul className="list-disc ml-4 space-y-0.5">
+                                        <li>Aceder, corrigir ou eliminar os seus dados pessoais.</li>
+                                        <li>Solicitar informações sobre como os seus dados são tratados.</li>
+                                    </ul>
+                                </div>
+
+                                <div className="pt-2 border-t border-gray-200">
+                                    <p className="font-bold text-gray-700 uppercase tracking-tighter mb-1">Isenção de Responsabilidade</p>
+                                    <p className="italic">
+                                        Esta aplicação e os seus responsáveis não fornecem aconselhamento jurídico. As informações apresentadas destinam-se apenas a comunicar as práticas de privacidade adotadas. Ao utilizar esta aplicação, aceita que a responsabilidade pelo cumprimento das obrigações legais relacionadas com o tratamento dos seus dados pessoais é limitada às disposições aqui descritas.
+                                    </p>
+                                </div>
+                            </div>
                         </div>
                     </div>
                 </div>

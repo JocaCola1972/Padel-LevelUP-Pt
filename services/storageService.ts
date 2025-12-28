@@ -78,10 +78,16 @@ export const fetchAllData = async () => {
 };
 
 const mergeAndSave = (key: string, cloudData: any[]) => {
+    if (!cloudData) return;
     const localData = JSON.parse(localStorage.getItem(key) || '[]');
-    if (cloudData && cloudData.length > 0) {
+    
+    // Se a nuvem tem dados, ela é a fonte de verdade para garantir sincronização entre dispositivos
+    // No entanto, para evitar que dados recém-criados localmente mas não submetidos desapareçam,
+    // fazemos um merge inteligente baseado em IDs se necessário.
+    // Para simplificar e garantir replicação fiel:
+    if (cloudData.length > 0) {
         localStorage.setItem(key, JSON.stringify(cloudData));
-    } else if (localData.length === 0 && cloudData) {
+    } else if (localData.length === 0) {
         localStorage.setItem(key, JSON.stringify(cloudData));
     }
 };
@@ -150,7 +156,6 @@ export const getPlayers = (): Player[] => JSON.parse(localStorage.getItem(KEYS.P
 export const savePlayer = async (player: Player): Promise<void> => {
     const players = getPlayers();
     
-    // Garantir ID permanente ÚNICO (Participant Number) se for 0 ou nulo
     if (!player.participantNumber || player.participantNumber === 0) {
         const maxId = players.reduce((max, p) => Math.max(max, p.participantNumber || 0), 0);
         player.participantNumber = maxId + 1;
@@ -168,16 +173,57 @@ export const savePlayer = async (player: Player): Promise<void> => {
     }
 };
 
+export const savePlayersBulk = async (ps: Partial<Player>[]): Promise<{ added: number, updated: number }> => {
+    const current = getPlayers();
+    let maxParticipantId = current.reduce((max, p) => Math.max(max, p.participantNumber || 0), 0);
+    const newPlayers: Player[] = [];
+    
+    ps.forEach(p => { 
+        if(!current.find(c => c.phone === p.phone)) {
+            maxParticipantId++;
+            const fullPlayer: Player = {
+                id: generateUUID(),
+                name: p.name || 'Jogador',
+                phone: p.phone || '',
+                totalPoints: 0,
+                gamesPlayed: 0,
+                participantNumber: maxParticipantId,
+                isApproved: true,
+                role: 'user',
+                ...p
+            };
+            current.push(fullPlayer);
+            newPlayers.push(fullPlayer);
+        }
+    });
+    
+    if (newPlayers.length === 0) return { added: 0, updated: 0 };
+
+    localStorage.setItem(KEYS.PLAYERS, JSON.stringify(current));
+    notifyListeners();
+    
+    if (supabase) {
+        // Upsert apenas os novos para evitar timeouts e conflitos de rede
+        const { error } = await supabase.from('players').upsert(newPlayers);
+        if (error) console.error("Erro ao importar jogadores na nuvem:", error);
+    }
+    
+    return { added: newPlayers.length, updated: 0 };
+};
+
 export const updatePresence = async (playerId: string) => {
     const players = getPlayers();
     const idx = players.findIndex(p => p.id === playerId);
     if (idx >= 0) {
         const now = Date.now();
-        players[idx].lastActive = now;
-        localStorage.setItem(KEYS.PLAYERS, JSON.stringify(players));
-        // Não notificamos listeners locais aqui para evitar re-render loops infinitos, apenas se necessário
-        if (supabase) {
-            await supabase.from('players').update({ lastActive: now }).eq('id', playerId);
+        // Apenas atualizamos se tiver passado mais de 30 segundos para evitar flood no Supabase
+        const last = players[idx].lastActive || 0;
+        if (now - last > 30000) {
+            players[idx].lastActive = now;
+            localStorage.setItem(KEYS.PLAYERS, JSON.stringify(players));
+            if (supabase) {
+                await supabase.from('players').update({ lastActive: now }).eq('id', playerId);
+            }
         }
     }
 };
@@ -421,31 +467,6 @@ export const deleteAllMessagesForUser = async (uid: string) => {
 };
 export const getUnreadCount = (uid: string) => getMessages().filter(m => (m.receiverId === uid || m.receiverId === 'ALL') && !m.read).length;
 export const getPlayerByPhone = (ph: string) => getPlayers().find(p => p.phone === ph);
-
-export const savePlayersBulk = (ps: any[]) => {
-    const current = getPlayers();
-    let maxParticipantId = current.reduce((max, p) => Math.max(max, p.participantNumber || 0), 0);
-    
-    ps.forEach(p => { 
-        if(!current.find(c => c.phone === p.phone)) {
-            maxParticipantId++;
-            current.push({
-                ...p, 
-                id: generateUUID(), 
-                totalPoints: 0, 
-                gamesPlayed: 0, 
-                participantNumber: maxParticipantId,
-                isApproved: true
-            }); 
-        }
-    });
-    
-    localStorage.setItem(KEYS.PLAYERS, JSON.stringify(current));
-    notifyListeners();
-    if (supabase) supabase.from('players').upsert(current);
-    return { added: ps.length, updated: 0 };
-};
-
 export const clearAllMessages = async () => {
     localStorage.setItem(KEYS.MESSAGES, '[]');
     notifyListeners();
