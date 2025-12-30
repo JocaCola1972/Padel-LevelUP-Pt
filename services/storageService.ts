@@ -1,6 +1,6 @@
 
 import { Player, Registration, MatchRecord, AppState, Shift, CourtAllocation, MastersState, PasswordResetRequest, Message, GameResult } from '../types';
-import { createClient, SupabaseClient } from '@supabase/supabase-js';
+import { createClient, SupabaseClient, RealtimeChannel } from '@supabase/supabase-js';
 
 const KEYS = {
   PLAYERS: 'padel_players',
@@ -15,6 +15,7 @@ const SUPABASE_URL = "https://bjiyrvayymwojubafray.supabase.co";
 const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImJqaXlydmF5eW13b2p1YmFmcmF5Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjU2NjQ3ODMsImV4cCI6MjA4MTI0MDc4M30.f1iIInDubbIm7rR5-gm6bEybTU3etOW5s1waX4P8hEo";
 
 let supabase: SupabaseClient | null = null;
+let syncChannel: RealtimeChannel | null = null;
 let isConnected = false;
 let isSyncing = false;
 
@@ -37,22 +38,23 @@ export const isFirebaseConnected = () => isConnected;
 export const getIsSyncing = () => isSyncing;
 
 export const initCloudSync = async () => {
+    if (supabase && isConnected) return;
+
     try {
         if (!supabase) {
             supabase = createClient(SUPABASE_URL, SUPABASE_KEY, {
                 auth: { persistSession: false },
-                realtime: { params: { eventsPerSecond: 20 } }
+                realtime: { 
+                    params: { eventsPerSecond: 40 },
+                    heartbeatIntervalMs: 3000 // Intervalo mais curto para detetar quedas
+                }
             });
         }
         
         await fetchAllData();
         enableRealtimeSubscriptions();
-        
-        isConnected = true;
-        notifyListeners();
     } catch (e) {
-        console.error("Erro ao conectar à nuvem:", e);
-        isConnected = false;
+        console.error("Erro ao iniciar sincronização:", e);
         setTimeout(initCloudSync, 5000);
     }
 };
@@ -81,37 +83,46 @@ export const fetchAllData = async () => {
         }
         notifyListeners();
     } catch (err) {
-        console.error("Erro ao sincronizar dados:", err);
+        console.error("Erro ao descarregar dados:", err);
     }
 };
 
 const enableRealtimeSubscriptions = () => {
     if (!supabase) return;
     
-    supabase.removeAllChannels();
+    if (syncChannel) {
+        supabase.removeChannel(syncChannel);
+    }
 
-    supabase.channel('global-sync')
+    syncChannel = supabase.channel('realtime-sync')
         .on('postgres_changes', { event: '*', schema: 'public', table: 'players' }, handleRealtimeUpdate)
         .on('postgres_changes', { event: '*', schema: 'public', table: 'registrations' }, handleRealtimeUpdate)
         .on('postgres_changes', { event: '*', schema: 'public', table: 'matches' }, handleRealtimeUpdate)
         .on('postgres_changes', { event: '*', schema: 'public', table: 'messages' }, handleRealtimeUpdate)
         .on('postgres_changes', { event: '*', schema: 'public', table: 'settings' }, handleRealtimeUpdate)
         .subscribe((status) => {
+            console.log("Supabase Realtime Status:", status);
             isConnected = (status === 'SUBSCRIBED');
             notifyListeners();
+            
+            if (status === 'CLOSED' || status === 'CHANNEL_ERROR') {
+                setTimeout(enableRealtimeSubscriptions, 5000);
+            }
         });
 };
 
 const handleRealtimeUpdate = (payload: any) => {
     const { table, eventType, new: newRecord, old: oldRecord } = payload;
     const tableName = table.toLowerCase();
-    let key = '';
+    
+    console.debug(`Realtime Update: ${tableName} (${eventType})`);
 
+    // Casos especiais de Configuração (Settings)
     if (tableName === 'settings') {
         if (newRecord) {
             const sKey = newRecord.key === 'appState' ? KEYS.STATE : (newRecord.key === 'masters' ? KEYS.MASTERS : null);
             if (sKey) {
-                // Sobreposição total do servidor para configurações críticas para evitar estados inconsistentes
+                // Atualização ATÓMICA para evitar que o estado local "atropele" o servidor
                 localStorage.setItem(sKey, JSON.stringify(newRecord.value));
             }
         }
@@ -119,18 +130,21 @@ const handleRealtimeUpdate = (payload: any) => {
         return;
     }
 
+    let storageKey = '';
     switch(tableName) {
-        case 'players': key = KEYS.PLAYERS; break;
-        case 'registrations': key = KEYS.REGISTRATIONS; break;
-        case 'matches': key = KEYS.MATCHES; break;
-        case 'messages': key = KEYS.MESSAGES; break;
+        case 'players': storageKey = KEYS.PLAYERS; break;
+        case 'registrations': storageKey = KEYS.REGISTRATIONS; break;
+        case 'matches': storageKey = KEYS.MATCHES; break;
+        case 'messages': storageKey = KEYS.MESSAGES; break;
         default: return;
     }
 
-    let data = JSON.parse(localStorage.getItem(key) || '[]');
+    let data = JSON.parse(localStorage.getItem(storageKey) || '[]');
     
     if (eventType === 'INSERT') {
-        if (!data.find((i: any) => i.id === newRecord.id)) data.push(newRecord);
+        if (!data.find((i: any) => i.id === newRecord.id)) {
+            data.push(newRecord);
+        }
     } else if (eventType === 'UPDATE') {
         const idx = data.findIndex((i: any) => i.id === newRecord.id);
         if (idx >= 0) data[idx] = newRecord;
@@ -139,7 +153,10 @@ const handleRealtimeUpdate = (payload: any) => {
         data = data.filter((i: any) => i.id !== oldRecord.id);
     }
 
-    localStorage.setItem(key, JSON.stringify(data));
+    // Persistência local imediata
+    localStorage.setItem(storageKey, JSON.stringify(data));
+    
+    // Notifica UI para re-renderizar
     notifyListeners();
 };
 
@@ -164,7 +181,12 @@ const syncAction = async (task: Promise<any>) => {
     isSyncing = true;
     notifyListeners();
     try {
-        return await task;
+        const result = await task;
+        if (result.error) throw result.error;
+        return result;
+    } catch (e) {
+        console.error("Erro na ação de sincronização:", e);
+        throw e;
     } finally {
         isSyncing = false;
         notifyListeners();
@@ -179,10 +201,11 @@ export const savePlayer = async (player: Player): Promise<void> => {
         const maxId = players.reduce((max, p) => Math.max(max, p.participantNumber || 0), 0);
         player.participantNumber = maxId + 1;
     }
+    
+    // Update local primeiro para feedback instantâneo (Optmistic UI)
     const idx = players.findIndex(p => p.id === player.id || p.phone === player.phone);
     if (idx >= 0) players[idx] = { ...players[idx], ...player };
     else players.push(player);
-    
     localStorage.setItem(KEYS.PLAYERS, JSON.stringify(players));
     notifyListeners();
 
@@ -296,9 +319,15 @@ export const getAppState = (): AppState => {
 export const updateAppState = async (updates: Partial<AppState>): Promise<void> => {
     const current = getAppState();
     const merged = { ...current, ...updates };
+    
+    // Atualização local imediata
     localStorage.setItem(KEYS.STATE, JSON.stringify(merged));
     notifyListeners();
-    if (supabase) await syncAction(supabase.from('settings').upsert({ key: 'appState', value: merged }, { onConflict: 'key' }));
+
+    if (supabase) {
+        // ESSENCIAL: onConflict: 'key' garante que o Supabase atualiza a linha correta sem duplicar ou reverter
+        await syncAction(supabase.from('settings').upsert({ key: 'appState', value: merged }, { onConflict: 'key' }));
+    }
 };
 
 export const saveMastersState = async (state: MastersState): Promise<void> => {

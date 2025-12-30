@@ -1,5 +1,5 @@
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { Player } from './types';
 import { PlayerForm } from './components/PlayerForm';
 import { RegistrationPanel } from './components/RegistrationPanel';
@@ -42,8 +42,25 @@ const App: React.FC = () => {
   const [isProfileOpen, setIsProfileOpen] = useState(false);
   const [isNotificationsOpen, setIsNotificationsOpen] = useState(false);
   const [unreadMessagesCount, setUnreadMessagesCount] = useState(0);
-  const [isSyncing, setIsSyncing] = useState(false);
+  const [isConnected, setIsConnected] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
+
+  // Memoized refresh function to prevent dependency issues
+  const refreshState = useCallback(() => {
+      setIsConnected(isFirebaseConnected());
+      setIsUploading(getIsSyncing());
+      
+      if (currentUser) {
+          setUnreadMessagesCount(getUnreadCount(currentUser.id));
+          const players = getPlayers();
+          const fresh = players.find(p => p.id === currentUser.id);
+          
+          // Se o utilizador logado mudar (ex: admin mudou o seu papel ou nome), atualiza localmente
+          if (fresh && JSON.stringify(fresh) !== JSON.stringify(currentUser)) {
+              setCurrentUser(fresh);
+          }
+      }
+  }, [currentUser]);
 
   useEffect(() => {
     const appState = getAppState();
@@ -54,44 +71,40 @@ const App: React.FC = () => {
   }, [viewState]);
 
   useEffect(() => {
+    // Liga ao Supabase mal a App começa
     initCloudSync();
     generateTacticalTip().then(setTip);
     
-    const refreshState = () => {
-        setIsSyncing(isFirebaseConnected());
-        setIsUploading(getIsSyncing());
-        if (currentUser) {
-            setUnreadMessagesCount(getUnreadCount(currentUser.id));
-            const players = getPlayers();
-            const fresh = players.find(p => p.id === currentUser.id);
-            if (fresh && JSON.stringify(fresh) !== JSON.stringify(currentUser)) {
-                setCurrentUser(fresh);
-            }
-        }
-    };
-
-    const handleVisibilityChange = () => {
-        if (document.visibilityState === 'visible') {
-            fetchAllData(); // Forçar refresh ao voltar à App
-        }
-    };
-
-    refreshState();
+    // Subscreve a qualquer mudança enviada pelo servidor
     const unsubscribe = subscribeToChanges(refreshState);
     
-    // Presença a cada 60s apenas para manter a lista "viva"
-    const presenceInterval = setInterval(() => {
-        if (currentUser) updatePresence(currentUser.id);
-    }, 60000); 
+    const handleVisibilityChange = () => {
+        if (document.visibilityState === 'visible') {
+            fetchAllData().then(refreshState);
+        }
+    };
 
     window.addEventListener('visibilitychange', handleVisibilityChange);
+    
+    // Refresh inicial
+    refreshState();
 
     return () => { 
         unsubscribe();
-        clearInterval(presenceInterval); 
         window.removeEventListener('visibilitychange', handleVisibilityChange);
     };
-  }, [currentUser]);
+  }, [refreshState]);
+
+  // Heartbeat de presença separado para não interferir com a UI
+  useEffect(() => {
+      if (!currentUser) return;
+      
+      const presenceInterval = setInterval(() => {
+          updatePresence(currentUser.id);
+      }, 60000); 
+
+      return () => clearInterval(presenceInterval);
+  }, [currentUser?.id]);
 
   const handleLoginSuccess = (player: Player) => {
     localStorage.setItem(SESSION_KEY, player.id);
@@ -121,8 +134,8 @@ const App: React.FC = () => {
             <h1 className="text-xl font-black italic text-padel-dark transform -skew-x-6">Padel LevelUp</h1>
             <div className="flex items-center gap-1.5 ml-1">
                 <div 
-                    className={`w-2.5 h-2.5 rounded-full transition-all duration-300 ${isSyncing ? 'bg-green-500 shadow-[0_0_8px_#22c55e]' : 'bg-red-500 shadow-[0_0_8px_#ef4444]'}`} 
-                    title={isSyncing ? "Sincronizado" : "Ligação instável"}
+                    className={`w-2.5 h-2.5 rounded-full transition-all duration-300 ${isConnected ? 'bg-green-500 shadow-[0_0_8px_#22c55e]' : 'bg-red-500 shadow-[0_0_8px_#ef4444] animate-pulse'}`} 
+                    title={isConnected ? "Sincronizado em tempo real" : "A tentar ligar..."}
                 ></div>
                 {isUploading && (
                     <div className="w-1.5 h-1.5 bg-blue-500 rounded-full animate-ping"></div>
