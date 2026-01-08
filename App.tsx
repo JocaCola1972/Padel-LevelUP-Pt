@@ -49,6 +49,15 @@ const App: React.FC = () => {
   const refreshState = useCallback(() => {
       setIsConnected(isSupabaseConnected());
       setIsUploading(getIsSyncing());
+      
+      const state = getAppState();
+      
+      // Favicon dynamic update
+      if (state.faviconUrl) {
+          const link = document.getElementById('favicon') as HTMLLinkElement;
+          if (link) link.href = state.faviconUrl;
+      }
+
       if (currentUser) {
           setUnreadMessagesCount(getUnreadCount(currentUser.id));
           const players = getPlayers();
@@ -62,7 +71,6 @@ const App: React.FC = () => {
   useEffect(() => {
     const client = getSupabase();
     
-    // Escuta alterações na sessão (Auth Nativo)
     client.auth.onAuthStateChange((event, session) => {
         if (session?.user) {
             refreshUser(session.user.id);

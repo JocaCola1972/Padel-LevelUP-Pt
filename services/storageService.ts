@@ -26,7 +26,6 @@ export const getSupabase = () => {
     if (!supabase) {
         supabase = createClient(SUPABASE_URL, SUPABASE_KEY, {
             auth: { persistSession: true, autoRefreshToken: true },
-            realtime: { params: { eventsPerSecond: 40 } }
         });
     }
     return supabase;
@@ -53,6 +52,9 @@ export const initCloudSync = async () => {
 };
 
 export const fetchAllData = async () => {
+    isSyncing = true;
+    notifyListeners();
+    
     const client = getSupabase();
     try {
         const thirtyDaysAgo = new Date();
@@ -60,7 +62,7 @@ export const fetchAllData = async () => {
         const thirtyDaysAgoStr = thirtyDaysAgo.toISOString().split('T')[0];
 
         const [p, r, m, msg, config, settings] = await Promise.all([
-            client.from('players').select('*').order('participantNumber', { ascending: true }).limit(100),
+            client.from('players').select('*').order('participantNumber', { ascending: true }).limit(200),
             client.from('registrations').select('*'),
             client.from('matches').select('*').gte('date', thirtyDaysAgoStr).order('timestamp', { ascending: false }),
             client.from('messages').select('*').order('timestamp', { ascending: false }).limit(50),
@@ -80,6 +82,8 @@ export const fetchAllData = async () => {
                 autoOpenTime: config.data.auto_open_time,
                 isTournamentFinished: config.data.is_tournament_finished,
                 customLogo: config.data.custom_logo,
+                loginBackground: config.data.login_background,
+                faviconUrl: config.data.favicon_url,
                 courtConfig: config.data.court_config,
                 gamesPerShift: config.data.games_per_shift,
                 passwordResetRequests: config.data.password_reset_requests || [],
@@ -93,49 +97,16 @@ export const fetchAllData = async () => {
             const mastersRow = settings.data.find((row: any) => row.key === 'masters');
             if (mastersRow) localStorage.setItem(KEYS.MASTERS, JSON.stringify(mastersRow.value));
         }
-        
-        notifyListeners();
     } catch (err) {
         console.error("Erro ao sincronizar dados:", err);
+    } finally {
+        isSyncing = false;
+        notifyListeners();
     }
-};
-
-/**
- * Carrega jogadores em lotes com suporte a pesquisa no servidor
- */
-export const fetchPlayersBatch = async (offset: number, limit: number = 50, search?: string): Promise<Player[]> => {
-    const client = getSupabase();
-    let query = client
-        .from('players')
-        .select('*')
-        .order('participantNumber', { ascending: true });
-    
-    if (search) {
-        query = query.or(`name.ilike.%${search}%,phone.ilike.%${search}%`);
-    }
-
-    const { data, error } = await query.range(offset, offset + limit - 1);
-    
-    if (error) throw error;
-    return data || [];
-};
-
-export const fetchMatchesByDate = async (date: string): Promise<MatchRecord[]> => {
-    const client = getSupabase();
-    const { data, error } = await client
-        .from('matches')
-        .select('*')
-        .eq('date', date)
-        .order('timestamp', { ascending: false });
-    
-    if (error) throw error;
-    return data || [];
 };
 
 const enableRealtimeSubscriptions = () => {
     const client = getSupabase();
-    if (syncChannel) client.removeChannel(syncChannel);
-
     syncChannel = client.channel('realtime-sync')
         .on('postgres_changes', { event: '*', schema: 'public' }, handleRealtimeUpdate)
         .subscribe((status) => {
@@ -158,6 +129,8 @@ const handleRealtimeUpdate = (payload: any) => {
                 autoOpenTime: newRecord.auto_open_time ?? currentLocal.autoOpenTime,
                 isTournamentFinished: newRecord.is_tournament_finished ?? currentLocal.isTournamentFinished,
                 customLogo: newRecord.custom_logo ?? currentLocal.customLogo,
+                loginBackground: newRecord.login_background ?? currentLocal.loginBackground,
+                faviconUrl: newRecord.favicon_url ?? currentLocal.faviconUrl,
                 courtConfig: newRecord.court_config ?? currentLocal.courtConfig,
                 gamesPerShift: newRecord.games_per_shift ?? currentLocal.gamesPerShift,
                 passwordResetRequests: newRecord.password_reset_requests ?? currentLocal.passwordResetRequests,
@@ -261,7 +234,7 @@ export const uploadSiteAsset = async (file: File, namePrefix: string): Promise<s
     const filePath = `assets/${fileName}`;
 
     const { error: uploadError } = await client.storage
-        .from('avatars') // Reusing same bucket but in assets/ folder for simplicity if configured to allow
+        .from('avatars')
         .upload(filePath, file);
 
     if (uploadError) throw uploadError;
@@ -270,7 +243,6 @@ export const uploadSiteAsset = async (file: File, namePrefix: string): Promise<s
     return data.publicUrl;
 };
 
-export const generateUUID = () => crypto.randomUUID?.() || Math.random().toString(36).substring(2) + Date.now().toString(36);
 export const getPlayers = (): Player[] => JSON.parse(localStorage.getItem(KEYS.PLAYERS) || '[]');
 
 export const savePlayer = async (player: Player): Promise<void> => {
@@ -281,37 +253,27 @@ export const savePlayer = async (player: Player): Promise<void> => {
     else players.push(player);
     localStorage.setItem(KEYS.PLAYERS, JSON.stringify(players));
     notifyListeners();
-    await client.from('players').upsert(player);
+    const { id, name, phone, totalPoints, gamesPlayed, participantNumber, role, photoUrl, isApproved, lastActive } = player;
+    await client.from('players').upsert({ id, name, phone, totalPoints, gamesPlayed, participantNumber, role, photoUrl, isApproved, lastActive });
 };
 
-export const savePlayersBulk = async (ps: Partial<Player>[]): Promise<{ added: number, updated: number }> => {
+// Fix: Implement savePlayersBulk for bulk updates in MembersList
+export const savePlayersBulk = async (players: Player[]): Promise<void> => {
     const client = getSupabase();
-    const current = getPlayers();
-    let maxParticipantId = current.reduce((max, p) => Math.max(max, p.participantNumber || 0), 0);
-    const newPlayers: Player[] = [];
-    ps.forEach(p => { 
-        if(!current.find(c => c.phone === p.phone)) {
-            maxParticipantId++;
-            newPlayers.push({
-                id: generateUUID(),
-                name: p.name || 'Jogador',
-                phone: p.phone || '',
-                totalPoints: 0,
-                gamesPlayed: 0,
-                participantNumber: maxParticipantId,
-                isApproved: true,
-                role: 'user',
-                ...p
-            });
-        }
-    });
-    if (newPlayers.length === 0) return { added: 0, updated: 0 };
-    await client.from('players').insert(newPlayers);
-    return { added: newPlayers.length, updated: 0 };
-};
-
-export const updatePresence = async (playerId: string) => {
-    await getSupabase().from('players').update({ lastActive: Date.now() }).eq('id', playerId);
+    const payload = players.map(p => ({
+        id: p.id, 
+        name: p.name, 
+        phone: p.phone, 
+        totalPoints: p.totalPoints,
+        gamesPlayed: p.gamesPlayed, 
+        participantNumber: p.participantNumber,
+        role: p.role, 
+        photoUrl: p.photoUrl, 
+        isApproved: p.isApproved, 
+        lastActive: p.lastActive
+    }));
+    await client.from('players').upsert(payload);
+    notifyListeners();
 };
 
 export const getRegistrations = (): Registration[] => JSON.parse(localStorage.getItem(KEYS.REGISTRATIONS) || '[]');
@@ -324,8 +286,10 @@ export const updateRegistration = async (id: string, updates: Partial<Registrati
 export const removeRegistration = async (id: string): Promise<void> => {
     await getSupabase().from('registrations').delete().eq('id', id);
 };
-export const clearAllRegistrations = async (): Promise<void> => {
-    await getSupabase().from('registrations').delete().neq('id', '0');
+
+// Fix: Implement deleteRegistrationsByDate for AdminPanel
+export const deleteRegistrationsByDate = async (date: string) => {
+    await getSupabase().from('registrations').delete().eq('date', date);
 };
 
 export const getMatches = (): MatchRecord[] => JSON.parse(localStorage.getItem(KEYS.MATCHES) || '[]');
@@ -338,8 +302,51 @@ export const addMatch = async (match: MatchRecord, points: number): Promise<void
     });
     await Promise.all([
         client.from('matches').insert(match),
-        client.from('players').upsert(players.filter(p => match.playerIds.includes(p.id)))
+        client.from('players').upsert(players.filter(p => match.playerIds.includes(p.id)).map(p => ({
+            id: p.id, totalPoints: p.totalPoints, gamesPlayed: p.gamesPlayed
+        })))
     ]);
+};
+
+// Fix: Implement deleteMatchesByDate for AdminPanel with points reversal
+export const deleteMatchesByDate = async (date: string) => {
+    const client = getSupabase();
+    const { data: matchesToDelete } = await client.from('matches').select('*').eq('date', date);
+    if (!matchesToDelete || matchesToDelete.length === 0) return;
+
+    const players = getPlayers();
+    
+    matchesToDelete.forEach((match: MatchRecord) => {
+        const pts = match.result === GameResult.WIN ? 4 : (match.result === GameResult.DRAW ? 2 : 1);
+        match.playerIds.forEach(pid => {
+            const p = players.find(x => x.id === pid);
+            if (p) {
+                p.totalPoints = Math.max(0, p.totalPoints - pts);
+                p.gamesPlayed = Math.max(0, p.gamesPlayed - 1);
+            }
+        });
+    });
+
+    await Promise.all([
+        client.from('matches').delete().eq('date', date),
+        client.from('players').upsert(players.map(p => ({ 
+            id: p.id, 
+            totalPoints: p.totalPoints, 
+            gamesPlayed: p.gamesPlayed 
+        })))
+    ]);
+};
+
+// Fix: Implement fetchMatchesByDate for MatchTracker history
+export const fetchMatchesByDate = async (date: string): Promise<MatchRecord[]> => {
+    const { data, error } = await getSupabase()
+        .from('matches')
+        .select('*')
+        .eq('date', date)
+        .order('timestamp', { ascending: false });
+    
+    if (error) throw error;
+    return data || [];
 };
 
 export const getMessages = (): Message[] => JSON.parse(localStorage.getItem(KEYS.MESSAGES) || '[]');
@@ -359,6 +366,8 @@ export const updateAppState = async (updates: Partial<AppState>): Promise<void> 
     if (updates.autoOpenTime !== undefined) dbUpdates.auto_open_time = updates.autoOpenTime;
     if (updates.isTournamentFinished !== undefined) dbUpdates.is_tournament_finished = updates.isTournamentFinished;
     if (updates.customLogo !== undefined) dbUpdates.custom_logo = updates.customLogo;
+    if (updates.loginBackground !== undefined) dbUpdates.login_background = updates.loginBackground;
+    if (updates.faviconUrl !== undefined) dbUpdates.favicon_url = updates.faviconUrl;
     if (updates.courtConfig !== undefined) dbUpdates.court_config = updates.courtConfig;
     if (updates.gamesPerShift !== undefined) dbUpdates.games_per_shift = updates.gamesPerShift;
     if (updates.passwordResetRequests !== undefined) dbUpdates.password_reset_requests = updates.passwordResetRequests;
@@ -368,35 +377,32 @@ export const updateAppState = async (updates: Partial<AppState>): Promise<void> 
     await getSupabase().from('app_config').update(dbUpdates).eq('id', 1);
 };
 
-export const saveMastersState = async (state: MastersState): Promise<void> => {
-    await getSupabase().from('settings').upsert({ key: 'masters', value: state }, { onConflict: 'key' });
-};
-
 export const approvePlayer = async (id: string) => {
     await getSupabase().from('players').update({ isApproved: true }).eq('id', id);
+};
+
+// Fix: Implement approveAllPendingPlayers for MembersList
+export const approveAllPendingPlayers = async () => {
+    await getSupabase().from('players').update({ isApproved: true }).eq('isApproved', false);
+};
+
+// Fix: Implement resolvePasswordReset for MembersList
+export const resolvePasswordReset = async (requestId: string) => {
+    const state = getAppState();
+    const updatedRequests = state.passwordResetRequests.filter(r => r.id !== requestId);
+    await updateAppState({ passwordResetRequests: updatedRequests });
 };
 
 export const removePlayer = async (id: string) => {
     await getSupabase().from('players').delete().eq('id', id);
 };
 
-export const deleteMatchesByDate = async (d: string) => {
-    const matches = getMatches().filter(x => x.date === d);
-    const players = getPlayers();
-    matches.forEach(match => {
-        const pts = match.result === GameResult.WIN ? 4 : (match.result === GameResult.DRAW ? 2 : 1);
-        match.playerIds.forEach(pid => {
-            const p = players.find(x => x.id === pid);
-            if (p) {
-                p.totalPoints = Math.max(0, p.totalPoints - pts);
-                p.gamesPlayed = Math.max(0, p.gamesPlayed - 1);
-            }
-        });
-    });
-    await Promise.all([
-        getSupabase().from('matches').delete().eq('date', d),
-        getSupabase().from('players').upsert(players)
-    ]);
+export const clearAllMessages = async () => {
+    await getSupabase().from('messages').delete().neq('id', '0');
+};
+
+export const clearAllRegistrations = async () => {
+    await getSupabase().from('registrations').delete().neq('id', '0');
 };
 
 export const clearMatchesByShift = async (shift: Shift) => {
@@ -414,45 +420,50 @@ export const clearMatchesByShift = async (shift: Shift) => {
     });
     await Promise.all([
         getSupabase().from('matches').delete().eq('shift', shift),
-        getSupabase().from('players').upsert(players)
+        getSupabase().from('players').upsert(players.map(p => ({ id: p.id, totalPoints: p.totalPoints, gamesPlayed: p.gamesPlayed })))
     ]);
 };
 
-export const deleteRegistrationsByDate = async (d: string) => {
-    await getSupabase().from('registrations').delete().eq('date', d);
-};
-
+export const getUnreadCount = (uid: string) => getMessages().filter(m => (m.receiverId === uid || m.receiverId === 'ALL') && !m.read).length;
+export const getMessagesForUser = (uid: string) => getMessages().filter(m => m.receiverId === uid || m.receiverId === 'ALL');
 export const markMessageAsRead = async (id: string) => {
     await getSupabase().from('messages').update({ read: true }).eq('id', id);
 };
-
 export const deleteMessageForUser = async (id: string) => {
     await getSupabase().from('messages').delete().eq('id', id);
 };
+export const deleteAllMessagesForUser = async (uid: string) => {
+    await getSupabase().from('messages').delete().eq('receiverId', uid);
+};
 
-export const getUnreadCount = (uid: string) => getMessages().filter(m => (m.receiverId === uid || m.receiverId === 'ALL') && !m.read).length;
-export const getPlayerByPhone = (ph: string) => getPlayers().find(p => p.phone === ph);
-export const getMessagesForUser = (uid: string) => getMessages().filter(m => m.receiverId === uid || m.receiverId === 'ALL');
+export const updatePresence = async (playerId: string) => {
+    await getSupabase().from('players').update({ lastActive: Date.now() }).eq('id', playerId);
+};
+
+export const saveMastersState = async (state: MastersState): Promise<void> => {
+    await getSupabase().from('settings').upsert({ key: 'masters', value: state }, { onConflict: 'key' });
+};
 
 export const getMastersState = (): MastersState => {
     const data = localStorage.getItem(KEYS.MASTERS);
     return data ? JSON.parse(data) : { teams: [], matches: [], currentPhase: 1, pool: [] };
 };
 
-export const resolvePasswordReset = async (reqId: string, approve: boolean) => {
-    const state = getAppState();
-    const newRequests = (state.passwordResetRequests || []).filter(r => r.id !== reqId);
-    await updateAppState({ passwordResetRequests: newRequests });
+// Fix: Implement fetchPlayersBatch for infinite scrolling in MembersList
+export const fetchPlayersBatch = async (offset: number, limit: number, search?: string): Promise<Player[]> => {
+    let query = getSupabase()
+        .from('players')
+        .select('*')
+        .order('participantNumber', { ascending: true })
+        .range(offset, offset + limit - 1);
+    
+    if (search) {
+        query = query.or(`name.ilike.%${search}%,phone.ilike.%${search}%`);
+    }
+    
+    const { data, error } = await query;
+    if (error) throw error;
+    return data || [];
 };
 
-export const approveAllPendingPlayers = async () => {
-    await getSupabase().from('players').update({ isApproved: true }).eq('isApproved', false);
-};
-
-export const deleteAllMessagesForUser = async (uid: string) => {
-    await getSupabase().from('messages').delete().eq('receiverId', uid);
-};
-
-export const clearAllMessages = async () => {
-    await getSupabase().from('messages').delete().neq('id', '0');
-};
+export const generateUUID = () => crypto.randomUUID?.() || Math.random().toString(36).substring(2) + Date.now().toString(36);
