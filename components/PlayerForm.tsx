@@ -39,7 +39,6 @@ export const PlayerForm: React.FC<PlayerFormProps> = ({ initialMode, onBack }) =
     setError('');
     const cleanPhone = phone.trim();
     
-    // Especial: Se for o utilizador mestre, permite menos de 9 dígitos
     const isSpecialAdmin = cleanPhone === 'JocaCola';
     
     if (!newName || (!isSpecialAdmin && cleanPhone.replace(/\s/g, '').length < 9)) {
@@ -48,8 +47,9 @@ export const PlayerForm: React.FC<PlayerFormProps> = ({ initialMode, onBack }) =
     }
     setIsLoading(true);
     try {
-      await signUp(newName, cleanPhone, password);
-      alert("Ficha criada com sucesso! Podes agora entrar no sistema.");
+      // Registo sem password conforme pedido do utilizador
+      await signUp(newName, cleanPhone);
+      alert("Ficha criada com sucesso! Podes agora entrar no sistema apenas com o teu número.");
       setMode('login');
     } catch (err: any) {
       if (err.message?.includes("User already registered")) {
@@ -117,17 +117,19 @@ export const PlayerForm: React.FC<PlayerFormProps> = ({ initialMode, onBack }) =
               required 
             />
           </div>
-          <div>
-            <label className="block text-[10px] font-black text-gray-400 uppercase mb-1.5 ml-1 tracking-widest">Password</label>
-            <input 
-              type="password" 
-              value={password} 
-              onChange={e => setPassword(e.target.value)} 
-              className="w-full p-4 bg-gray-50 border border-gray-100 rounded-2xl outline-none focus:ring-2 focus:ring-padel transition-all font-mono" 
-              placeholder="••••••••" 
-              required 
-            />
-          </div>
+          
+          {mode === 'login' && (
+            <div className="animate-fade-in">
+              <label className="block text-[10px] font-black text-gray-400 uppercase mb-1.5 ml-1 tracking-widest">Password (se definida)</label>
+              <input 
+                type="password" 
+                value={password} 
+                onChange={e => setPassword(e.target.value)} 
+                className="w-full p-4 bg-gray-50 border border-gray-100 rounded-2xl outline-none focus:ring-2 focus:ring-padel transition-all font-mono" 
+                placeholder="Deixa em branco no 1º acesso" 
+              />
+            </div>
+          )}
 
           {error && (
             <div className="text-red-700 text-xs font-bold bg-red-50 p-4 rounded-2xl border border-red-100 animate-slide-down shadow-sm">

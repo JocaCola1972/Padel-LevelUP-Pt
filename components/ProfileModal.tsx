@@ -14,8 +14,10 @@ interface ProfileModalProps {
 export const ProfileModal: React.FC<ProfileModalProps> = ({ currentUser, onClose, onUpdate, onLogout }) => {
   const [name, setName] = useState(currentUser.name);
   const [phone, setPhone] = useState(currentUser.phone);
+  const [password, setPassword] = useState(currentUser.password || '');
   const [photoUrl, setPhotoUrl] = useState(currentUser.photoUrl || '');
   const [error, setError] = useState('');
+  const [success, setSuccess] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -30,15 +32,15 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({ currentUser, onClose
 
       setIsUploading(true);
       setError('');
+      setSuccess('');
       try {
-          // Upload para o bucket 'avatars' no Supabase Storage
           const publicUrl = await uploadAvatar(currentUser.id, file);
           setPhotoUrl(publicUrl);
           
-          // Guarda imediatamente o URL na tabela players para persistência
           const updated = { ...currentUser, photoUrl: publicUrl };
           await savePlayer(updated);
           onUpdate(updated);
+          setSuccess("Foto de perfil atualizada!");
       } catch (err: any) {
           setError("Erro no upload: " + err.message);
       } finally {
@@ -49,11 +51,14 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({ currentUser, onClose
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsLoading(true);
+    setError('');
+    setSuccess('');
     try {
-      const updated = { ...currentUser, name, phone, photoUrl };
+      const updated = { ...currentUser, name, phone, password, photoUrl };
       await savePlayer(updated);
       onUpdate(updated);
-      onClose();
+      setSuccess("Perfil atualizado com sucesso!");
+      setTimeout(() => onClose(), 1500);
     } catch (err: any) {
       setError(err.message);
     } finally {
@@ -109,13 +114,34 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({ currentUser, onClose
           </div>
           <div>
             <label className="block text-[10px] font-black text-gray-400 uppercase mb-1 ml-1">Telemóvel</label>
-            <input value={phone} onChange={e => setPhone(e.target.value)} className="w-full p-4 bg-gray-50 border rounded-xl outline-none font-mono text-gray-500" placeholder="Telemóvel" disabled />
-            <p className="text-[9px] text-gray-400 mt-1 ml-1">* O telemóvel é a sua identidade e não pode ser alterado.</p>
+            <input value={phone} className="w-full p-4 bg-gray-50 border rounded-xl outline-none font-mono text-gray-400 cursor-not-allowed" placeholder="Telemóvel" disabled />
+          </div>
+          
+          <div className="pt-2 border-t border-gray-100">
+            <label className="block text-[10px] font-black text-gray-400 uppercase mb-1 ml-1 tracking-widest">
+              {currentUser.password ? 'Alterar Password' : 'Definir Password'}
+            </label>
+            <input 
+              type="password" 
+              value={password} 
+              onChange={e => setPassword(e.target.value)} 
+              className="w-full p-4 bg-gray-50 border border-padel/20 rounded-xl outline-none focus:ring-2 focus:ring-padel font-mono transition-all" 
+              placeholder="Nova password"
+            />
+            <p className="text-[9px] text-gray-400 mt-1 ml-1 italic">
+              {currentUser.password ? 'Introduz a nova password para alterar.' : 'Define uma password para proteger a tua conta.'}
+            </p>
           </div>
           
           {error && (
             <div className="text-red-600 text-[11px] font-bold bg-red-50 p-3 rounded-lg border border-red-100 animate-slide-down">
                 ⚠️ {error}
+            </div>
+          )}
+          
+          {success && (
+            <div className="text-green-700 text-[11px] font-bold bg-green-50 p-3 rounded-lg border border-green-100 animate-slide-down">
+                ✅ {success}
             </div>
           )}
 

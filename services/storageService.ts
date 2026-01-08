@@ -173,7 +173,6 @@ const handleRealtimeUpdate = (payload: any) => {
 export const signUp = async (name: string, phone: string, password?: string) => {
     const client = getSupabase();
     
-    // Verificar se já existe
     const { data: existing } = await client.from('players').select('id').eq('phone', phone).maybeSingle();
     if (existing) throw new Error("User already registered");
 
@@ -186,7 +185,7 @@ export const signUp = async (name: string, phone: string, password?: string) => 
         id: generateUUID(),
         name,
         phone,
-        password: password || 'padel123', // Guardamos a password na tabela players
+        password: password || '', // Password agora é opcional no registo
         participantNumber: nextId,
         totalPoints: 0,
         gamesPlayed: 0,
@@ -211,19 +210,21 @@ export const signIn = async (phone: string, password?: string) => {
     if (error) throw error;
     if (!user) throw new Error("Invalid login credentials");
     
-    // Verificação de password simples (idealmente usarias hashing, mas para este caso resolve)
-    if (user.password !== (password || 'padel123')) {
-        throw new Error("Invalid login credentials");
-    }
+    // Se o utilizador tem password definida, exige verificação
+    if (user.password && user.password !== '') {
+        if (user.password !== (password || '')) {
+            throw new Error("Invalid login credentials");
+        }
+    } 
+    // Se não tem password, permite entrar (ou se a pass fornecida bater com a vazia)
+    // Nota: para utilizadores sem password, permitimos entrar com password vazia
 
-    // Promoção automática JocaCola
     if (phone === 'JocaCola' && user.role !== 'super_admin') {
         await client.from('players').update({ role: 'super_admin', isApproved: true }).eq('id', user.id);
         user.role = 'super_admin';
         user.isApproved = true;
     }
 
-    // Guardar sessão manual
     localStorage.setItem(KEYS.SESSION, JSON.stringify(user));
     notifyListeners();
     return user;
@@ -283,7 +284,6 @@ export const savePlayer = async (player: Player): Promise<void> => {
     else players.push(player);
     localStorage.setItem(KEYS.PLAYERS, JSON.stringify(players));
     
-    // Se o player for o atual, atualiza a sessão
     const current = getCurrentUser();
     if (current && current.id === player.id) {
         localStorage.setItem(KEYS.SESSION, JSON.stringify(player));
