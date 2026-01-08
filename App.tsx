@@ -15,14 +15,14 @@ import { NotificationModal } from './components/NotificationModal';
 import { LevelUpInfo } from './components/LevelUpInfo';
 import { ToolsPanel } from './components/ToolsPanel';
 import { generateTacticalTip } from './services/geminiService';
-import { getAppState, getUnreadCount, initCloudSync, isSupabaseConnected, subscribeToChanges, getPlayers, updatePresence, getIsSyncing, fetchAllData, getSupabase, signOut } from './services/storageService';
+import { getAppState, getUnreadCount, initCloudSync, isSupabaseConnected, subscribeToChanges, getPlayers, updatePresence, getIsSyncing, fetchAllData, signOut, getCurrentUser } from './services/storageService';
 
 enum Tab { LEVELUP = 'levelup', REGISTRATION = 'registrations', INSCRITOS = 'inscritos', MATCHES = 'matches', RANKING = 'ranking', MEMBERS = 'members', MASTERS = 'masters', ADMIN = 'admin', TOOLS = 'tools' }
 enum ViewState { LANDING = 'landing', AUTH = 'auth', APP = 'app' }
 
 const App: React.FC = () => {
-  const [currentUser, setCurrentUser] = useState<Player | null>(null);
-  const [viewState, setViewState] = useState<ViewState>(ViewState.LANDING);
+  const [currentUser, setCurrentUser] = useState<Player | null>(getCurrentUser());
+  const [viewState, setViewState] = useState<ViewState>(getCurrentUser() ? ViewState.APP : ViewState.LANDING);
   const [authMode, setAuthMode] = useState<'login' | 'register'>('login');
   const [activeTab, setActiveTab] = useState<Tab>(Tab.LEVELUP);
   const [tip, setTip] = useState<string>('');
@@ -31,20 +31,6 @@ const App: React.FC = () => {
   const [unreadMessagesCount, setUnreadMessagesCount] = useState(0);
   const [isConnected, setIsConnected] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
-
-  const refreshUser = useCallback((userId: string) => {
-      const players = getPlayers();
-      const found = players.find(p => p.id === userId);
-      if (found) {
-          if (found.isApproved === false) {
-              handleLogout();
-              alert("A tua conta aguarda aprovação.");
-          } else {
-              setCurrentUser(found);
-              setViewState(ViewState.APP);
-          }
-      }
-  }, []);
 
   const refreshState = useCallback(() => {
       setIsConnected(isSupabaseConnected());
@@ -58,28 +44,23 @@ const App: React.FC = () => {
           if (link) link.href = state.faviconUrl;
       }
 
-      if (currentUser) {
-          setUnreadMessagesCount(getUnreadCount(currentUser.id));
-          const players = getPlayers();
-          const fresh = players.find(p => p.id === currentUser.id);
-          if (fresh && JSON.stringify(fresh) !== JSON.stringify(currentUser)) {
-              setCurrentUser(fresh);
+      const freshUser = getCurrentUser();
+      if (freshUser) {
+          if (freshUser.isApproved === false && currentUser) {
+              handleLogout();
+              alert("A tua conta aguarda aprovação.");
+          } else {
+              setCurrentUser(freshUser);
+              setViewState(ViewState.APP);
+              setUnreadMessagesCount(getUnreadCount(freshUser.id));
           }
+      } else if (currentUser) {
+          setCurrentUser(null);
+          setViewState(ViewState.LANDING);
       }
   }, [currentUser]);
 
   useEffect(() => {
-    const client = getSupabase();
-    
-    client.auth.onAuthStateChange((event, session) => {
-        if (session?.user) {
-            refreshUser(session.user.id);
-        } else {
-            setCurrentUser(null);
-            setViewState(ViewState.LANDING);
-        }
-    });
-
     initCloudSync();
     generateTacticalTip().then(setTip);
     const unsubscribe = subscribeToChanges(refreshState);
@@ -89,11 +70,14 @@ const App: React.FC = () => {
     };
     window.addEventListener('visibilitychange', handleVisibilityChange);
 
+    // Initial check
+    refreshState();
+
     return () => { 
         unsubscribe();
         window.removeEventListener('visibilitychange', handleVisibilityChange);
     };
-  }, [refreshState, refreshUser]);
+  }, [refreshState]);
 
   useEffect(() => {
       if (!currentUser) return;

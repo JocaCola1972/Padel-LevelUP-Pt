@@ -26,16 +26,6 @@ export const PlayerForm: React.FC<PlayerFormProps> = ({ initialMode, onBack }) =
     } catch (err: any) {
       if (err.message === "Invalid login credentials") {
         setError("As credenciais não coincidem. Verifica o utilizador/número e a password.");
-      } else if (err.message?.toLowerCase().includes("email not confirmed")) {
-        setError(
-          <div className="space-y-2">
-            <p className="font-bold text-red-700">Acesso Restrito Temporariamente!</p>
-            <p className="text-[10px] leading-tight text-red-600 font-medium">
-              O Administrador ainda não configurou a confirmação automática no Supabase. 
-              Por favor, informe o responsável para desativar <strong>"Confirm Email"</strong> no Dashboard do Supabase.
-            </p>
-          </div>
-        );
       } else {
         setError(err.message || "Erro de ligação ao sistema. Tente mais tarde.");
       }

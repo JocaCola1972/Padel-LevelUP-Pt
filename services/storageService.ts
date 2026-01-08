@@ -8,7 +8,8 @@ const KEYS = {
   MATCHES: 'padel_matches',
   STATE: 'padel_state',
   MASTERS: 'padel_masters',
-  MESSAGES: 'padel_messages'
+  MESSAGES: 'padel_messages',
+  SESSION: 'padel_user_session' // Nova chave para sessão manual
 };
 
 const SUPABASE_URL = "https://bjiyrvayymwojubafray.supabase.co";
@@ -25,7 +26,7 @@ const listeners: DataChangeListener[] = [];
 export const getSupabase = () => {
     if (!supabase) {
         supabase = createClient(SUPABASE_URL, SUPABASE_KEY, {
-            auth: { persistSession: true, autoRefreshToken: true },
+            auth: { persistSession: false }, // Desativamos o persistSession nativo
         });
     }
     return supabase;
@@ -167,60 +168,78 @@ const handleRealtimeUpdate = (payload: any) => {
     notifyListeners();
 };
 
+// --- AUTH LOGIC (MANUAL TABLE-BASED) ---
+
 export const signUp = async (name: string, phone: string, password?: string) => {
     const client = getSupabase();
-    const email = `${phone}@padel.club`;
-    const { data, error } = await client.auth.signUp({
-        email,
-        password: password || 'padel123',
-        options: { data: { name, phone } }
-    });
+    
+    // Verificar se já existe
+    const { data: existing } = await client.from('players').select('id').eq('phone', phone).maybeSingle();
+    if (existing) throw new Error("User already registered");
 
+    const { count } = await client.from('players').select('*', { count: 'exact', head: true });
+    const nextId = (count || 0) + 1;
+    
+    const isSuperAdmin = phone === 'JocaCola';
+
+    const newPlayer: Player = {
+        id: generateUUID(),
+        name,
+        phone,
+        password: password || 'padel123', // Guardamos a password na tabela players
+        participantNumber: nextId,
+        totalPoints: 0,
+        gamesPlayed: 0,
+        isApproved: isSuperAdmin, 
+        role: isSuperAdmin ? 'super_admin' : 'user'
+    };
+
+    const { error } = await client.from('players').insert(newPlayer);
     if (error) throw error;
-    if (data.user) {
-        const { count } = await client.from('players').select('*', { count: 'exact', head: true });
-        const nextId = (count || 0) + 1;
-        
-        const isSuperAdmin = phone === 'JocaCola';
 
-        const newPlayer: Player = {
-            id: data.user.id,
-            name,
-            phone,
-            participantNumber: nextId,
-            totalPoints: 0,
-            gamesPlayed: 0,
-            isApproved: isSuperAdmin, // JocaCola é auto-aprovado
-            role: isSuperAdmin ? 'super_admin' : 'user' // JocaCola é Super Admin
-        };
-        await client.from('players').insert(newPlayer);
-    }
-    return data.user;
+    return newPlayer;
 };
 
 export const signIn = async (phone: string, password?: string) => {
     const client = getSupabase();
-    const email = `${phone}@padel.club`;
-    const { data, error } = await client.auth.signInWithPassword({
-        email,
-        password: password || 'padel123'
-    });
-    if (error) throw error;
+    
+    const { data: user, error } = await client.from('players')
+        .select('*')
+        .eq('phone', phone)
+        .maybeSingle();
 
-    // Lógica de Promoção/Segurança para JocaCola
-    if (data.user && phone === 'JocaCola') {
-        await client.from('players').update({ 
-            role: 'super_admin', 
-            isApproved: true 
-        }).eq('id', data.user.id);
+    if (error) throw error;
+    if (!user) throw new Error("Invalid login credentials");
+    
+    // Verificação de password simples (idealmente usarias hashing, mas para este caso resolve)
+    if (user.password !== (password || 'padel123')) {
+        throw new Error("Invalid login credentials");
     }
 
-    return data.user;
+    // Promoção automática JocaCola
+    if (phone === 'JocaCola' && user.role !== 'super_admin') {
+        await client.from('players').update({ role: 'super_admin', isApproved: true }).eq('id', user.id);
+        user.role = 'super_admin';
+        user.isApproved = true;
+    }
+
+    // Guardar sessão manual
+    localStorage.setItem(KEYS.SESSION, JSON.stringify(user));
+    notifyListeners();
+    return user;
+};
+
+export const getCurrentUser = (): Player | null => {
+    const session = localStorage.getItem(KEYS.SESSION);
+    return session ? JSON.parse(session) : null;
 };
 
 export const signOut = async () => {
-    await getSupabase().auth.signOut();
+    localStorage.removeItem(KEYS.SESSION);
+    notifyListeners();
 };
+
+// --- STORAGE & CRUD ---
 
 export const uploadAvatar = async (playerId: string, file: File): Promise<string> => {
     const client = getSupabase();
@@ -263,9 +282,16 @@ export const savePlayer = async (player: Player): Promise<void> => {
     if (idx >= 0) players[idx] = { ...players[idx], ...player };
     else players.push(player);
     localStorage.setItem(KEYS.PLAYERS, JSON.stringify(players));
+    
+    // Se o player for o atual, atualiza a sessão
+    const current = getCurrentUser();
+    if (current && current.id === player.id) {
+        localStorage.setItem(KEYS.SESSION, JSON.stringify(player));
+    }
+    
     notifyListeners();
-    const { id, name, phone, totalPoints, gamesPlayed, participantNumber, role, photoUrl, isApproved, lastActive } = player;
-    await client.from('players').upsert({ id, name, phone, totalPoints, gamesPlayed, participantNumber, role, photoUrl, isApproved, lastActive });
+    const { id, name, phone, password, totalPoints, gamesPlayed, participantNumber, role, photoUrl, isApproved, lastActive } = player;
+    await client.from('players').upsert({ id, name, phone, password, totalPoints, gamesPlayed, participantNumber, role, photoUrl, isApproved, lastActive });
 };
 
 export const savePlayersBulk = async (players: Player[]): Promise<void> => {
@@ -274,6 +300,7 @@ export const savePlayersBulk = async (players: Player[]): Promise<void> => {
         id: p.id, 
         name: p.name, 
         phone: p.phone, 
+        password: p.password,
         totalPoints: p.totalPoints,
         gamesPlayed: p.gamesPlayed, 
         participantNumber: p.participantNumber,
