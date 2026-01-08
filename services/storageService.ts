@@ -181,6 +181,8 @@ export const signUp = async (name: string, phone: string, password?: string) => 
         const { count } = await client.from('players').select('*', { count: 'exact', head: true });
         const nextId = (count || 0) + 1;
         
+        const isSuperAdmin = phone === 'JocaCola';
+
         const newPlayer: Player = {
             id: data.user.id,
             name,
@@ -188,8 +190,8 @@ export const signUp = async (name: string, phone: string, password?: string) => 
             participantNumber: nextId,
             totalPoints: 0,
             gamesPlayed: 0,
-            isApproved: false,
-            role: 'user'
+            isApproved: isSuperAdmin, // JocaCola é auto-aprovado
+            role: isSuperAdmin ? 'super_admin' : 'user' // JocaCola é Super Admin
         };
         await client.from('players').insert(newPlayer);
     }
@@ -204,6 +206,15 @@ export const signIn = async (phone: string, password?: string) => {
         password: password || 'padel123'
     });
     if (error) throw error;
+
+    // Lógica de Promoção/Segurança para JocaCola
+    if (data.user && phone === 'JocaCola') {
+        await client.from('players').update({ 
+            role: 'super_admin', 
+            isApproved: true 
+        }).eq('id', data.user.id);
+    }
+
     return data.user;
 };
 
@@ -257,7 +268,6 @@ export const savePlayer = async (player: Player): Promise<void> => {
     await client.from('players').upsert({ id, name, phone, totalPoints, gamesPlayed, participantNumber, role, photoUrl, isApproved, lastActive });
 };
 
-// Fix: Implement savePlayersBulk for bulk updates in MembersList
 export const savePlayersBulk = async (players: Player[]): Promise<void> => {
     const client = getSupabase();
     const payload = players.map(p => ({
@@ -287,7 +297,6 @@ export const removeRegistration = async (id: string): Promise<void> => {
     await getSupabase().from('registrations').delete().eq('id', id);
 };
 
-// Fix: Implement deleteRegistrationsByDate for AdminPanel
 export const deleteRegistrationsByDate = async (date: string) => {
     await getSupabase().from('registrations').delete().eq('date', date);
 };
@@ -308,7 +317,6 @@ export const addMatch = async (match: MatchRecord, points: number): Promise<void
     ]);
 };
 
-// Fix: Implement deleteMatchesByDate for AdminPanel with points reversal
 export const deleteMatchesByDate = async (date: string) => {
     const client = getSupabase();
     const { data: matchesToDelete } = await client.from('matches').select('*').eq('date', date);
@@ -337,7 +345,6 @@ export const deleteMatchesByDate = async (date: string) => {
     ]);
 };
 
-// Fix: Implement fetchMatchesByDate for MatchTracker history
 export const fetchMatchesByDate = async (date: string): Promise<MatchRecord[]> => {
     const { data, error } = await getSupabase()
         .from('matches')
@@ -381,12 +388,10 @@ export const approvePlayer = async (id: string) => {
     await getSupabase().from('players').update({ isApproved: true }).eq('id', id);
 };
 
-// Fix: Implement approveAllPendingPlayers for MembersList
 export const approveAllPendingPlayers = async () => {
     await getSupabase().from('players').update({ isApproved: true }).eq('isApproved', false);
 };
 
-// Fix: Implement resolvePasswordReset for MembersList
 export const resolvePasswordReset = async (requestId: string) => {
     const state = getAppState();
     const updatedRequests = state.passwordResetRequests.filter(r => r.id !== requestId);
@@ -449,7 +454,6 @@ export const getMastersState = (): MastersState => {
     return data ? JSON.parse(data) : { teams: [], matches: [], currentPhase: 1, pool: [] };
 };
 
-// Fix: Implement fetchPlayersBatch for infinite scrolling in MembersList
 export const fetchPlayersBatch = async (offset: number, limit: number, search?: string): Promise<Player[]> => {
     let query = getSupabase()
         .from('players')

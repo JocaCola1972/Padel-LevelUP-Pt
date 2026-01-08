@@ -25,7 +25,7 @@ export const PlayerForm: React.FC<PlayerFormProps> = ({ initialMode, onBack }) =
       await signIn(phone, password);
     } catch (err: any) {
       if (err.message === "Invalid login credentials") {
-        setError("As credenciais não coincidem. Verifica o número e a password.");
+        setError("As credenciais não coincidem. Verifica o utilizador/número e a password.");
       } else if (err.message?.toLowerCase().includes("email not confirmed")) {
         setError(
           <div className="space-y-2">
@@ -47,19 +47,23 @@ export const PlayerForm: React.FC<PlayerFormProps> = ({ initialMode, onBack }) =
   const handleRegister = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
-    const cleanPhone = phone.trim().replace(/\s/g, '');
-    if (!newName || cleanPhone.length < 9) {
+    const cleanPhone = phone.trim();
+    
+    // Especial: Se for o utilizador mestre, permite menos de 9 dígitos
+    const isSpecialAdmin = cleanPhone === 'JocaCola';
+    
+    if (!newName || (!isSpecialAdmin && cleanPhone.replace(/\s/g, '').length < 9)) {
       setError("Insira um nome válido e pelo menos 9 dígitos no telemóvel.");
       return;
     }
     setIsLoading(true);
     try {
       await signUp(newName, cleanPhone, password);
-      alert("Ficha criada com sucesso! Aguarda a aprovação do administrador para entrar.");
+      alert("Ficha criada com sucesso! Podes agora entrar no sistema.");
       setMode('login');
     } catch (err: any) {
       if (err.message?.includes("User already registered")) {
-        setError("Este número de telemóvel já tem uma ficha associada.");
+        setError("Este utilizador/número já tem uma ficha associada.");
       } else {
         setError(err.message || "Erro ao criar conta.");
       }
@@ -107,15 +111,15 @@ export const PlayerForm: React.FC<PlayerFormProps> = ({ initialMode, onBack }) =
                 value={newName} 
                 onChange={e => setNewName(e.target.value)} 
                 className="w-full p-4 bg-gray-50 border border-gray-100 rounded-2xl outline-none focus:ring-2 focus:ring-padel font-bold transition-all text-gray-800" 
-                placeholder="Ex: João Ferreira" 
+                placeholder="Ex: Elsa & Joca" 
                 required 
               />
             </div>
           )}
           <div>
-            <label className="block text-[10px] font-black text-gray-400 uppercase mb-1.5 ml-1 tracking-widest">Telemóvel</label>
+            <label className="block text-[10px] font-black text-gray-400 uppercase mb-1.5 ml-1 tracking-widest">Telemóvel / Utilizador</label>
             <input 
-              type="tel" 
+              type="text" 
               value={phone} 
               onChange={e => setPhone(e.target.value)} 
               className="w-full p-4 bg-gray-50 border border-gray-100 rounded-2xl font-mono text-xl outline-none focus:ring-2 focus:ring-padel transition-all text-gray-700" 
