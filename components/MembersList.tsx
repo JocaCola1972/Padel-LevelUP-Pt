@@ -1,10 +1,9 @@
 
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { Player, AppState, Message } from '../types';
-import { getPlayers, savePlayer, savePlayersBulk, removePlayer, generateUUID, getAppState, resolvePasswordReset, approvePlayer, approveAllPendingPlayers, saveMessage, subscribeToChanges } from '../services/storageService';
+import { getPlayers, savePlayer, savePlayersBulk, removePlayer, generateUUID, getAppState, resolvePasswordReset, approvePlayer, approveAllPendingPlayers, saveMessage, subscribeToChanges, fetchPlayersBatch } from '../services/storageService';
 import { Button } from './Button';
 
-// Declaration for SheetJS loaded via CDN
 declare const XLSX: any;
 
 interface MembersListProps {
@@ -15,749 +14,239 @@ export const MembersList: React.FC<MembersListProps> = ({ currentUser }) => {
   const [players, setPlayers] = useState<Player[]>([]);
   const [appState, setAppState] = useState<AppState>(getAppState());
   const [searchTerm, setSearchTerm] = useState('');
+  const [debouncedSearch, setDebouncedSearch] = useState('');
   
-  // Selection State
+  // Infinite Scroll State
+  const [isLoadingMore, setIsLoadingMore] = useState(false);
+  const [hasMore, setHasMore] = useState(true);
+  const [offset, setOffset] = useState(0);
+  const observerRef = useRef<IntersectionObserver | null>(null);
+  const lastElementRef = useRef<HTMLDivElement | null>(null);
+  const BATCH_SIZE = 50;
+
+  // Selection & Modal States
   const [isSelectionMode, setIsSelectionMode] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
-
-  // Manual Add Modal State
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const [newName, setNewName] = useState('');
   const [newPhone, setNewPhone] = useState('');
-
-  // Delete Confirmation Modal State
   const [playerToDelete, setPlayerToDelete] = useState<Player | null>(null);
-  const [showBulkDeleteConfirm, setShowBulkDeleteConfirm] = useState(false);
-  
-  // Message Modal State
   const [isMessageModalOpen, setIsMessageModalOpen] = useState(false);
   const [messageTarget, setMessageTarget] = useState<'ALL' | Player | null>(null);
   const [messageContent, setMessageContent] = useState('');
-  
-  // File Import State
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const [importStatus, setImportStatus] = useState('');
-  const [isImporting, setIsImporting] = useState(false);
 
-  const loadPlayers = () => {
-    const data = getPlayers();
-    setPlayers(data.sort((a, b) => (a.participantNumber || 0) - (b.participantNumber || 0)));
-    setAppState(getAppState()); // Refresh requests
-  };
+  // Debounce search
+  useEffect(() => {
+    const handler = setTimeout(() => setDebouncedSearch(searchTerm), 400);
+    return () => clearTimeout(handler);
+  }, [searchTerm]);
+
+  const loadInitialData = useCallback(async () => {
+      setIsLoadingMore(true);
+      try {
+          const initialBatch = await fetchPlayersBatch(0, BATCH_SIZE, debouncedSearch);
+          setPlayers(initialBatch);
+          setOffset(BATCH_SIZE);
+          setHasMore(initialBatch.length === BATCH_SIZE);
+          setAppState(getAppState());
+      } catch (err) {
+          console.error("Erro ao carregar membros:", err);
+      } finally {
+          setIsLoadingMore(false);
+      }
+  }, [debouncedSearch]);
+
+  const loadMorePlayers = useCallback(async () => {
+    if (isLoadingMore || !hasMore) return;
+    setIsLoadingMore(true);
+    try {
+        const nextBatch = await fetchPlayersBatch(offset, BATCH_SIZE, debouncedSearch);
+        if (nextBatch.length < BATCH_SIZE) setHasMore(false);
+        setPlayers(prev => [...prev, ...nextBatch]);
+        setOffset(prev => prev + BATCH_SIZE);
+    } catch (err) {
+        console.error("Erro ao carregar mais membros:", err);
+    } finally {
+        setIsLoadingMore(false);
+    }
+  }, [offset, hasMore, isLoadingMore, debouncedSearch]);
 
   useEffect(() => {
-    loadPlayers();
-    const unsubscribe = subscribeToChanges(loadPlayers);
-    const interval = setInterval(loadPlayers, 15000); 
-    return () => {
-        unsubscribe();
-        clearInterval(interval);
-    };
-  }, []);
+    loadInitialData();
+  }, [loadInitialData]);
 
-  const filteredPlayers = players.filter(p => 
-    p.name.toLowerCase().includes(searchTerm.toLowerCase()) || 
-    p.phone.includes(searchTerm) ||
-    p.participantNumber.toString().includes(searchTerm)
-  );
+  // Setup IntersectionObserver for infinite scroll
+  useEffect(() => {
+    if (isLoadingMore) return;
+    if (observerRef.current) observerRef.current.disconnect();
 
-  const pendingApprovalPlayers = filteredPlayers.filter(p => p.isApproved === false);
-  const activePlayers = filteredPlayers.filter(p => p.isApproved !== false);
+    observerRef.current = new IntersectionObserver(entries => {
+      if (entries[0].isIntersecting && hasMore) {
+        loadMorePlayers();
+      }
+    }, { threshold: 0.1 });
+
+    if (lastElementRef.current) {
+      observerRef.current.observe(lastElementRef.current);
+    }
+
+    return () => observerRef.current?.disconnect();
+  }, [loadMorePlayers, hasMore, isLoadingMore]);
 
   const isOnline = (player: Player) => {
       if (!player.lastActive) return false;
-      const FIVE_MINUTES = 5 * 60 * 1000;
-      return (Date.now() - player.lastActive) < FIVE_MINUTES;
-  };
-
-  const toggleSelectionMode = () => {
-      setIsSelectionMode(!isSelectionMode);
-      setSelectedIds(new Set());
-  };
-
-  const toggleSelectPlayer = (id: string) => {
-      const newSelected = new Set(selectedIds);
-      if (newSelected.has(id)) newSelected.delete(id);
-      else newSelected.add(id);
-      setSelectedIds(newSelected);
-  };
-
-  const selectAllActive = () => {
-      if (selectedIds.size === activePlayers.length) {
-          setSelectedIds(new Set());
-      } else {
-          setSelectedIds(new Set(activePlayers.map(p => p.id)));
-      }
-  };
-
-  const handleBulkDelete = async () => {
-      if (selectedIds.size === 0) return;
-      for (const id of Array.from(selectedIds)) {
-          await removePlayer(id as string);
-      }
-      setIsSelectionMode(false);
-      setSelectedIds(new Set());
-      setShowBulkDeleteConfirm(false);
-      loadPlayers();
+      return (Date.now() - player.lastActive) < (5 * 60 * 1000);
   };
 
   const handleManualAdd = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newName || newPhone.length < 9) {
-        alert("Preencha o nome e um telemóvel válido.");
-        return;
-    }
-
+    if (!newName || newPhone.length < 9) return;
     const newPlayer: Player = {
-        id: generateUUID(),
-        name: newName,
-        phone: newPhone,
-        totalPoints: 0,
-        gamesPlayed: 0,
-        participantNumber: 0, // Assigned in savePlayer
-        role: 'user',
-        isApproved: true // Manually added by admin = Approved
+        id: generateUUID(), name: newName, phone: newPhone,
+        totalPoints: 0, gamesPlayed: 0, participantNumber: 0,
+        role: 'user', isApproved: true
     };
-
     await savePlayer(newPlayer);
-    setNewName('');
-    setNewPhone('');
-    setIsAddModalOpen(false);
-    loadPlayers();
+    setNewName(''); setNewPhone(''); setIsAddModalOpen(false);
+    loadInitialData();
   };
 
   const confirmDelete = async () => {
       if (playerToDelete) {
           await removePlayer(playerToDelete.id);
-          loadPlayers();
+          setPlayers(prev => prev.filter(p => p.id !== playerToDelete.id));
           setPlayerToDelete(null);
       }
   };
 
-  // Role Management (Super Admin Only)
-  const toggleAdminRole = async (player: Player) => {
-      if (currentUser?.role !== 'super_admin') return;
-      if (player.id === currentUser.id) {
-          alert("Não podes alterar o teu próprio papel aqui.");
-          return;
-      }
-
-      const newRole = player.role === 'admin' ? 'user' : 'admin';
-      const updatedPlayer = { ...player, role: newRole as any }; // Cast because enum strictness
-      await savePlayer(updatedPlayer);
-      loadPlayers();
-  };
-
-  // Reset Password (Super Admin Only)
-  const resetUserPassword = async (player: Player) => {
-      if (currentUser?.role !== 'super_admin') return;
-      if (window.confirm(`Tem a certeza que deseja remover a password de ${player.name}?`)) {
-          const updatedPlayer = { ...player, password: undefined };
-          await savePlayer(updatedPlayer);
-          loadPlayers();
-          alert("Password removida com sucesso.");
-      }
-  };
-
-  // Approval Logic
-  const handleApprove = async (player: Player) => {
-      await approvePlayer(player.id);
-      loadPlayers();
-  };
-
-  const handleApproveAll = async () => {
-      if (window.confirm(`Tens a certeza que desejas aprovar todas as ${pendingApprovalPlayers.length} inscrições pendentes?`)) {
-          await approveAllPendingPlayers();
-          loadPlayers();
-      }
-  };
-
-  const handleReject = async (player: Player) => {
-      if (window.confirm(`Tens a certeza que desejas REPROVAR a inscrição de ${player.name}? O registo será apagado.`)) {
-          await removePlayer(player.id);
-          loadPlayers();
-      }
-  };
-
-  // Message Logic
-  const openMessageModal = (target: 'ALL' | Player) => {
-      setMessageTarget(target);
-      setMessageContent('');
-      setIsMessageModalOpen(true);
-  };
-
-  const handleSendMessage = async () => {
-      if (!currentUser || !messageContent.trim()) return;
-
-      const newMessage: Message = {
-          id: generateUUID(),
-          senderId: currentUser.id,
-          senderName: currentUser.name,
-          receiverId: messageTarget === 'ALL' ? 'ALL' : (messageTarget as Player).id,
-          content: messageContent,
-          timestamp: Date.now(),
-          read: false
-      };
-
-      await saveMessage(newMessage);
-      alert("Mensagem enviada com sucesso!");
-      setIsMessageModalOpen(false);
-  };
-
-  // Handle Requests
-  const handleResolveRequest = async (reqId: string, approve: boolean) => {
-      await resolvePasswordReset(reqId, approve);
-      loadPlayers(); 
-  };
-
-  // Export Function
-  const exportMembers = () => {
-      if (filteredPlayers.length === 0) {
-          alert("Sem membros para exportar.");
-          return;
-      }
-      
-      const data = filteredPlayers.map(p => ({
-          'ID': p.participantNumber,
-          'Nome': p.name,
-          'Telemóvel': p.phone,
-          'Jogos': p.gamesPlayed,
-          'Pontos': p.totalPoints,
-          'Função': p.role === 'super_admin' ? 'Super Admin' : p.role === 'admin' ? 'Admin' : 'Utilizador',
-          'Estado': p.isApproved === false ? 'Pendente' : 'Ativo'
-      }));
-
-      const ws = XLSX.utils.json_to_sheet(data);
-      const wb = XLSX.utils.book_new();
-      XLSX.utils.book_append_sheet(wb, ws, "Membros");
-      XLSX.writeFile(wb, `LevelUp_Membros.xlsx`);
-  };
-
-  const downloadTemplate = () => {
-      const ws = XLSX.utils.json_to_sheet([
-          { "Nome": "João Silva", "Telemóvel": "912345678" },
-          { "Nome": "Maria Santos", "Telemóvel": "961234567" }
-      ]);
-      const wb = XLSX.utils.book_new();
-      XLSX.utils.book_append_sheet(wb, ws, "Template");
-      XLSX.writeFile(wb, "Template_Importacao_LevelUp.xlsx");
-  };
-
-  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-
-    setImportStatus('A ler ficheiro...');
-    setIsImporting(true);
-    
-    const reader = new FileReader();
-    
-    reader.onload = async (evt) => {
-        try {
-            const data = evt.target?.result;
-            if (!data) return;
-
-            const workbook = XLSX.read(data, { type: 'binary' });
-            const sheetName = workbook.SheetNames[0];
-            const sheet = workbook.Sheets[sheetName];
-            const jsonData = XLSX.utils.sheet_to_json(sheet, { header: 1 }); 
-
-            if (jsonData.length < 1) {
-                setImportStatus('Ficheiro vazio.');
-                setIsImporting(false);
-                return;
-            }
-
-            const rows = jsonData as any[][];
-            let nameIdx = 0;
-            let phoneIdx = 1;
-            let startRow = 1; 
-
-            // Detect Headers
-            const headerRow = rows[0].map((c: any) => String(c).toLowerCase().trim());
-            const foundNameIdx = headerRow.findIndex((h: string) => h.includes('nome') || h.includes('name') || h.includes('jogador') || h.includes('participante'));
-            const foundPhoneIdx = headerRow.findIndex((h: string) => h.includes('telem') || h.includes('phone') || h.includes('contac') || h.includes('celular') || h.includes('movel'));
-
-            if (foundNameIdx > -1) {
-                nameIdx = foundNameIdx;
-                phoneIdx = foundPhoneIdx > -1 ? foundPhoneIdx : (nameIdx + 1);
-            } else {
-                nameIdx = 0;
-                phoneIdx = 1;
-                const potentialPhone = rows[0][1] ? String(rows[0][1]).replace(/[^0-9]/g, '') : '';
-                if (potentialPhone.length >= 9) {
-                    startRow = 0;
-                }
-            }
-
-            const playersToImport: Partial<Player>[] = [];
-
-            for (let i = startRow; i < rows.length; i++) {
-                const row = rows[i];
-                if (!row || !row[nameIdx]) continue;
-
-                const rawName = String(row[nameIdx]).trim();
-                let rawPhone = row[phoneIdx] ? String(row[phoneIdx]).trim() : '';
-                rawPhone = rawPhone.replace(/[^0-9]/g, '');
-
-                if (rawName && rawPhone.length >= 9) {
-                    playersToImport.push({
-                        name: rawName,
-                        phone: rawPhone,
-                        isApproved: true 
-                    });
-                }
-            }
-
-            if (playersToImport.length > 0) {
-                setImportStatus(`A importar ${playersToImport.length} membros na nuvem...`);
-                const result = await savePlayersBulk(playersToImport);
-                setImportStatus(`Importação concluída: ${result.added} novos jogadores registados.`);
-                loadPlayers();
-            } else {
-                setImportStatus('Nenhum jogador válido encontrado no ficheiro.');
-            }
-
-        } catch (error) {
-            console.error(error);
-            setImportStatus('Erro ao processar ficheiro.');
-        } finally {
-            setIsImporting(false);
-            if (fileInputRef.current) fileInputRef.current.value = '';
-            setTimeout(() => setImportStatus(''), 8000);
-        }
-    };
-    reader.readAsBinaryString(file);
-  };
-
   const isAnyAdmin = currentUser?.role === 'admin' || currentUser?.role === 'super_admin';
-  const isSuperAdmin = currentUser?.role === 'super_admin';
-  const pendingRequests = appState.passwordResetRequests || [];
 
   return (
     <div className="space-y-6 pb-20">
-      
-      {/* Header & Actions */}
       <div className="bg-white p-6 rounded-xl shadow-lg border-l-4 border-padel-blue">
         <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
             <div>
                 <h2 className="text-2xl font-bold text-gray-800">👥 Base de Dados</h2>
-                <p className="text-sm text-gray-500">Gestão de utilizadores e aprovações.</p>
+                <p className="text-sm text-gray-500">Gestão inteligente de utilizadores ({players.length} listados).</p>
             </div>
-            
             {isAnyAdmin && (
                 <div className="flex flex-wrap gap-2 w-full md:w-auto">
-                    <Button onClick={() => openMessageModal('ALL')} className="bg-purple-600 hover:bg-purple-700 shadow-purple-200">
-                         📢 Enviar Broadcast
-                    </Button>
-                    <Button onClick={() => setIsAddModalOpen(true)}>
-                        + Novo Membro
-                    </Button>
-                    
-                    <div className="relative">
-                        <input 
-                            type="file" 
-                            accept=".xlsx, .xls, .csv" 
-                            ref={fileInputRef}
-                            className="hidden"
-                            onChange={handleFileChange}
-                            disabled={isImporting}
-                        />
-                        <Button variant="secondary" onClick={() => fileInputRef.current?.click()} isLoading={isImporting}>
-                            {isImporting ? 'A Importar...' : '📥 Importar'}
-                        </Button>
-                    </div>
-
-                     <Button variant="ghost" onClick={exportMembers} className="border border-gray-200">
-                        📤 Exportar
-                    </Button>
+                    <Button onClick={() => setIsAddModalOpen(true)}>+ Novo</Button>
+                    <input type="file" ref={fileInputRef} className="hidden" />
+                    <Button variant="secondary" onClick={() => fileInputRef.current?.click()}>📥 Importar</Button>
                 </div>
             )}
         </div>
-
-        {isAnyAdmin && (
-            <div className="mt-2 text-right">
-                <button 
-                    onClick={downloadTemplate}
-                    className="text-xs text-blue-500 hover:text-blue-700 underline"
-                >
-                    Descarregar Modelo (Template) de Importação
-                </button>
-            </div>
-        )}
-
-        {importStatus && (
-            <div className={`mt-4 p-3 rounded-lg text-sm font-semibold animate-fade-in border ${importStatus.includes('Erro') || importStatus.includes('Nenhum') ? 'bg-red-50 text-red-800 border-red-100' : 'bg-blue-50 text-blue-800 border-blue-100'}`}>
-                {importStatus}
-            </div>
-        )}
-
-        {/* NOTIFICATIONS CENTER - SUPER ADMIN ONLY */}
-        {isSuperAdmin && pendingRequests.length > 0 && (
-            <div className="mt-6 bg-yellow-50 p-4 rounded-xl border border-yellow-200 animate-fade-in shadow-inner">
-                <h3 className="text-lg font-bold text-yellow-800 flex items-center gap-2 mb-3">
-                    🔔 Pedidos de Recuperação de Password
-                </h3>
-                <div className="space-y-2">
-                    {pendingRequests.map(req => (
-                        <div key={req.id} className="bg-white p-3 rounded shadow-sm flex justify-between items-center">
-                            <div>
-                                <span className="font-bold text-gray-800">{req.playerName}</span>
-                                <span className="text-xs text-gray-500 ml-2">({req.playerPhone})</span>
-                                <div className="text-[10px] text-gray-400">
-                                    {new Date(req.timestamp).toLocaleDateString()} {new Date(req.timestamp).toLocaleTimeString()}
-                                </div>
-                            </div>
-                            <div className="flex gap-2">
-                                <Button 
-                                    onClick={() => handleResolveRequest(req.id, true)}
-                                    className="bg-green-600 hover:bg-green-700 text-xs py-1 px-3 h-8"
-                                >
-                                    Reset
-                                </Button>
-                                <Button 
-                                    variant="ghost" 
-                                    onClick={() => handleResolveRequest(req.id, false)}
-                                    className="text-xs py-1 px-3 h-8 text-gray-400 hover:text-red-500"
-                                >
-                                    Ignorar
-                                </Button>
-                            </div>
-                        </div>
-                    ))}
-                </div>
-            </div>
-        )}
-
-        <div className="mt-6">
+        <div className="mt-6 relative">
             <input 
-                type="text" 
-                placeholder="Pesquisar por nome, número de telemóvel ou ID..." 
-                value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
-                className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-padel-blue outline-none"
+                type="text" placeholder="Pesquisar por nome ou telemóvel..." 
+                value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)}
+                className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-padel-blue outline-none transition-all"
             />
+            {isLoadingMore && offset === 0 && (
+                <div className="absolute right-3 top-3.5">
+                    <div className="w-5 h-5 border-2 border-padel-blue border-t-transparent rounded-full animate-spin"></div>
+                </div>
+            )}
         </div>
       </div>
 
-      {/* Manual Add Modal */}
+      <div className="bg-white rounded-xl shadow overflow-hidden border">
+        <div className="divide-y divide-gray-100">
+            {players.filter(p => p.isApproved !== false).map((player, index) => (
+                <div key={player.id} className="p-4 hover:bg-gray-50 flex items-center justify-between transition-colors">
+                    <div className="flex items-center gap-4">
+                        <div className="w-10 h-10 rounded-full bg-gray-100 overflow-hidden relative shadow-sm border border-gray-200">
+                            {player.photoUrl ? (
+                                <img 
+                                    src={player.photoUrl} 
+                                    loading="lazy" 
+                                    className="w-full h-full object-cover" 
+                                    alt={player.name}
+                                    style={{ imageRendering: 'auto' }}
+                                />
+                            ) : (
+                                <div className="w-full h-full flex items-center justify-center font-bold text-gray-400 text-xs">
+                                    #{player.participantNumber}
+                                </div>
+                            )}
+                            {isOnline(player) && (
+                                <div className="absolute bottom-0 right-0 w-3 h-3 bg-green-500 border-2 border-white rounded-full shadow-sm"></div>
+                            )}
+                        </div>
+                        <div>
+                            <div className="font-bold text-gray-900 text-sm flex items-center gap-2">
+                                {player.name}
+                                {player.role === 'admin' && <span className="text-[8px] bg-blue-100 text-blue-700 px-1 rounded font-black uppercase">Admin</span>}
+                                {player.role === 'super_admin' && <span className="text-[8px] bg-purple-100 text-purple-700 px-1 rounded font-black uppercase">Super</span>}
+                            </div>
+                            <div className="text-[10px] text-gray-400 font-mono">#{player.participantNumber} • {player.phone}</div>
+                        </div>
+                    </div>
+                    {isAnyAdmin && player.id !== currentUser?.id && (
+                        <button onClick={() => setPlayerToDelete(player)} className="p-2 text-gray-300 hover:text-red-500 transition-colors">
+                            🗑️
+                        </button>
+                    )}
+                </div>
+            ))}
+            
+            {/* Scroll Observer Target */}
+            <div ref={lastElementRef} className="h-4 w-full"></div>
+        </div>
+        
+        {isLoadingMore && players.length > 0 && (
+            <div className="p-4 bg-gray-50 text-center border-t border-gray-100">
+                <div className="inline-flex items-center gap-2 text-xs font-bold text-gray-400">
+                    <div className="w-4 h-4 border-2 border-gray-300 border-t-transparent rounded-full animate-spin"></div>
+                    A CARREGAR MAIS...
+                </div>
+            </div>
+        )}
+        
+        {!hasMore && players.length > 0 && (
+            <div className="p-4 bg-gray-50 text-center text-[10px] font-black text-gray-400 uppercase tracking-widest border-t">
+                Fim da lista
+            </div>
+        )}
+        
+        {players.length === 0 && !isLoadingMore && (
+            <div className="p-12 text-center text-gray-400 italic bg-gray-50">
+                Nenhum membro encontrado com "{searchTerm}".
+            </div>
+        )}
+      </div>
+
+      {/* Delete Confirmation Modal */}
+      {playerToDelete && (
+          <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4 backdrop-blur-sm animate-fade-in">
+              <div className="bg-white rounded-2xl p-6 w-full max-w-sm shadow-2xl border-t-4 border-red-500">
+                  <h3 className="font-bold text-lg mb-2">Eliminar Membro?</h3>
+                  <p className="text-sm text-gray-500 mb-6">Esta ação apagará permanentemente a ficha de <span className="font-bold text-gray-800">{playerToDelete.name}</span>.</p>
+                  <div className="flex gap-2">
+                      <Button variant="ghost" onClick={() => setPlayerToDelete(null)} className="flex-1">Cancelar</Button>
+                      <Button variant="danger" onClick={confirmDelete} className="flex-1">Eliminar</Button>
+                  </div>
+              </div>
+          </div>
+      )}
+
       {isAddModalOpen && (
-          <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4 animate-fade-in">
+          <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4 animate-fade-in backdrop-blur-sm">
               <div className="bg-white rounded-xl shadow-2xl p-6 w-full max-w-sm">
-                  <h3 className="text-xl font-bold mb-4">Adicionar Novo Membro</h3>
+                  <h3 className="text-xl font-bold mb-4 italic">Novo Membro (Admin)</h3>
                   <form onSubmit={handleManualAdd} className="space-y-4">
-                      <div>
-                          <label className="block text-xs font-bold text-gray-600 mb-1">Nome Completo</label>
-                          <input 
-                            type="text" 
-                            className="w-full p-2 border rounded"
-                            value={newName}
-                            onChange={e => setNewName(e.target.value)}
-                            required
-                          />
-                      </div>
-                      <div>
-                          <label className="block text-xs font-bold text-gray-600 mb-1">Telemóvel</label>
-                          <input 
-                            type="tel" 
-                            className="w-full p-2 border rounded"
-                            value={newPhone}
-                            onChange={e => setNewPhone(e.target.value)}
-                            required
-                          />
-                      </div>
-                      <div className="flex gap-2 pt-2">
+                      <input placeholder="Nome Completo" value={newName} onChange={e => setNewName(e.target.value)} className="w-full p-3 border rounded-lg" required />
+                      <input placeholder="Telemóvel" value={newPhone} onChange={e => setNewPhone(e.target.value)} className="w-full p-3 border rounded-lg font-mono" required />
+                      <div className="flex gap-2">
                           <Button type="button" variant="ghost" onClick={() => setIsAddModalOpen(false)} className="flex-1">Cancelar</Button>
-                          <Button type="submit" className="flex-1">Gravar e Aprovar</Button>
+                          <Button type="submit" className="flex-1">Criar Membro</Button>
                       </div>
                   </form>
               </div>
           </div>
       )}
-
-      {/* Delete Confirmation Modal */}
-      {playerToDelete && (
-          <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4 animate-fade-in backdrop-blur-sm">
-              <div className="bg-white rounded-xl shadow-2xl p-6 w-full max-w-sm border-t-4 border-red-500">
-                  <div className="flex flex-col items-center text-center mb-6">
-                      <div className="w-16 h-16 bg-red-100 rounded-full flex items-center justify-center mb-4 text-3xl">
-                          ⚠️
-                      </div>
-                      <h3 className="text-xl font-bold text-gray-800">Eliminar Membro?</h3>
-                      <p className="text-lg font-semibold text-gray-800 mt-2">{playerToDelete.name}</p>
-                      <p className="text-sm text-gray-500 mt-4">
-                          Esta ação é <span className="font-bold text-red-600 uppercase">irreversível</span>.
-                      </p>
-                      <p className="text-xs text-gray-500 mt-2">
-                          A ficha do jogador será apagada e todas as inscrições futuras serão canceladas automaticamente.
-                      </p>
-                  </div>
-                  
-                  <div className="flex gap-3">
-                      <Button 
-                        variant="secondary" 
-                        onClick={() => setPlayerToDelete(null)} 
-                        className="flex-1"
-                      >
-                        Cancelar
-                      </Button>
-                      <Button 
-                        variant="danger" 
-                        onClick={confirmDelete} 
-                        className="flex-1"
-                      >
-                        Eliminar Definitivamente
-                      </Button>
-                  </div>
-              </div>
-          </div>
-      )}
-
-      {/* Bulk Delete Confirmation Modal */}
-      {showBulkDeleteConfirm && (
-          <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4 animate-fade-in backdrop-blur-sm">
-              <div className="bg-white rounded-xl shadow-2xl p-6 w-full max-w-sm border-t-4 border-red-500">
-                  <div className="flex flex-col items-center text-center mb-6">
-                      <div className="w-16 h-16 bg-red-100 rounded-full flex items-center justify-center mb-4 text-3xl">
-                          ⚠️
-                      </div>
-                      <h3 className="text-xl font-bold text-gray-800">Eliminar Selecionados?</h3>
-                      <p className="text-sm text-gray-500 mt-4">
-                          Estás prestes a eliminar <span className="font-black text-red-600 text-lg">{selectedIds.size}</span> utilizadores.
-                      </p>
-                      <p className="text-xs text-gray-500 mt-2">
-                          Esta ação é definitiva e removerá todos os registos destes jogadores.
-                      </p>
-                  </div>
-                  
-                  <div className="flex gap-3">
-                      <Button 
-                        variant="secondary" 
-                        onClick={() => setShowBulkDeleteConfirm(false)} 
-                        className="flex-1"
-                      >
-                        Cancelar
-                      </Button>
-                      <Button 
-                        onClick={handleBulkDelete} 
-                        className="flex-1"
-                      >
-                        Sim, Eliminar Tudo
-                      </Button>
-                  </div>
-              </div>
-          </div>
-      )}
-
-      {/* Send Message Modal */}
-      {isMessageModalOpen && (
-          <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4 animate-fade-in backdrop-blur-sm">
-              <div className="bg-white rounded-xl shadow-2xl p-6 w-full max-w-md">
-                  <h3 className="text-xl font-bold mb-4">
-                      {messageTarget === 'ALL' ? '📢 Enviar para Todos (Broadcast)' : `💬 Mensagem para ${(messageTarget as Player).name}`}
-                  </h3>
-                  <textarea 
-                    value={messageContent}
-                    onChange={(e) => setMessageContent(e.target.value)}
-                    className="w-full p-3 border rounded-lg h-32 mb-4 focus:ring-2 focus:ring-padel outline-none resize-none"
-                    placeholder="Escreva a sua mensagem aqui..."
-                  ></textarea>
-                  <div className="flex gap-3">
-                      <Button variant="ghost" onClick={() => setIsMessageModalOpen(false)} className="flex-1">Cancelar</Button>
-                      <Button onClick={handleSendMessage} className="flex-1" disabled={!messageContent.trim()}>Enviar</Button>
-                  </div>
-              </div>
-          </div>
-      )}
-
-      {/* Pending Approvals Section */}
-      {isAnyAdmin && pendingApprovalPlayers.length > 0 && (
-          <div className="bg-orange-50 rounded-xl shadow overflow-hidden border border-orange-200 mb-6">
-              <div className="bg-orange-100 px-4 py-3 border-b border-orange-200 flex justify-between items-center">
-                  <span className="text-xs font-bold text-orange-800 uppercase tracking-wider">⏳ Pendentes de Aprovação ({pendingApprovalPlayers.length})</span>
-                  <button 
-                    onClick={handleApproveAll}
-                    className="bg-green-600 text-white text-[10px] font-bold px-3 py-1 rounded-full hover:bg-green-700 shadow-sm transition-all uppercase"
-                  >
-                      Aprovar Todos
-                  </button>
-              </div>
-              <div className="divide-y divide-orange-100">
-                  {pendingApprovalPlayers.map(player => (
-                      <div key={player.id} className="p-4 flex items-center justify-between hover:bg-orange-100/50 transition-colors">
-                          <div>
-                              <h4 className="font-bold text-gray-900">{player.name}</h4>
-                              <p className="text-xs text-gray-500 font-mono">#{player.participantNumber} • {player.phone}</p>
-                          </div>
-                          <div className="flex gap-2">
-                              <Button 
-                                onClick={() => handleApprove(player)} 
-                                className="bg-green-600 hover:bg-green-700 text-xs py-1.5 px-3 h-8 rounded-lg"
-                              >
-                                  ✅ Aprovar
-                              </Button>
-                              <Button 
-                                onClick={() => handleReject(player)} 
-                                className="bg-red-100 text-red-600 hover:bg-red-200 text-xs py-1.5 px-3 h-8 rounded-lg border-none shadow-none"
-                              >
-                                  ❌ Reprovar
-                              </Button>
-                          </div>
-                      </div>
-                  ))}
-              </div>
-          </div>
-      )}
-
-      {/* Active Members List */}
-      <div className="bg-white/95 backdrop-blur rounded-xl shadow overflow-hidden border border-white/20">
-        <div className="bg-gray-100 px-4 py-3 border-b border-gray-200 text-xs font-bold text-gray-500 uppercase flex justify-between items-center">
-            <div className="flex items-center gap-3">
-                <span>Utilizadores Ativos: {activePlayers.length}</span>
-                {isSelectionMode && (
-                    <span className="bg-blue-600 text-white px-2 py-0.5 rounded-full animate-pulse">
-                        {selectedIds.size} selecionados
-                    </span>
-                )}
-            </div>
-            
-            {isAnyAdmin && (
-                <div className="flex gap-2">
-                    {isSelectionMode ? (
-                        <>
-                            <button 
-                                onClick={selectAllActive}
-                                className="text-blue-600 hover:text-blue-800 transition-colors px-2"
-                            >
-                                {selectedIds.size === activePlayers.length ? 'Desmarcar Todos' : 'Todos'}
-                            </button>
-                            <button 
-                                onClick={() => setShowBulkDeleteConfirm(true)}
-                                disabled={selectedIds.size === 0}
-                                className={`font-black uppercase tracking-tighter ${selectedIds.size > 0 ? 'text-red-600' : 'text-gray-300'}`}
-                            >
-                                Eliminar ({selectedIds.size})
-                            </button>
-                            <button 
-                                onClick={toggleSelectionMode}
-                                className="text-gray-500 px-2"
-                            >
-                                Cancelar
-                            </button>
-                        </>
-                    ) : (
-                        <button 
-                            onClick={toggleSelectionMode}
-                            className="text-blue-600 hover:text-blue-800 transition-colors font-bold flex items-center gap-1"
-                        >
-                            <span>☑️ Selecionar</span>
-                        </button>
-                    )}
-                </div>
-            )}
-        </div>
-        <div className="divide-y divide-gray-100">
-            {activePlayers.map(player => {
-                const isSelected = selectedIds.has(player.id);
-                const online = isOnline(player);
-                return (
-                    <div 
-                        key={player.id} 
-                        onClick={() => isSelectionMode && toggleSelectPlayer(player.id)}
-                        className={`p-4 hover:bg-gray-50 flex flex-col sm:flex-row sm:items-center justify-between group transition-colors gap-3 cursor-default ${isSelected ? 'bg-blue-50/50 ring-1 ring-inset ring-blue-100' : ''}`}
-                    >
-                        <div className="flex items-center gap-4">
-                            {isSelectionMode && (
-                                <div className={`w-6 h-6 rounded border-2 flex items-center justify-center transition-all ${isSelected ? 'bg-blue-600 border-blue-600' : 'border-gray-300 bg-white'}`}>
-                                    {isSelected && <span className="text-white text-xs">✓</span>}
-                                </div>
-                            )}
-                            <div className="w-10 h-10 rounded-full bg-padel-blue/10 border border-padel-blue/20 overflow-hidden flex-shrink-0 relative">
-                                {player.photoUrl ? (
-                                    <img src={player.photoUrl} alt="" className="w-full h-full object-cover" />
-                                ) : (
-                                    <div className="w-full h-full flex items-center justify-center font-bold text-padel-blue text-xs">
-                                        #{player.participantNumber}
-                                    </div>
-                                )}
-                                {/* Online indicator overlay on photo */}
-                                {online && (
-                                    <div className="absolute bottom-0 right-0 w-3 h-3 bg-green-500 border-2 border-white rounded-full animate-pulse shadow-sm"></div>
-                                )}
-                            </div>
-                            <div>
-                                <h4 className="font-bold text-gray-900 flex items-center gap-2">
-                                    {player.name}
-                                    {online && (
-                                        <span className="text-[8px] bg-green-100 text-green-700 px-1.5 py-0.5 rounded-full font-black uppercase tracking-widest">Online</span>
-                                    )}
-                                    {player.role === 'super_admin' && (
-                                        <span className="text-[9px] bg-purple-600 text-white px-2 py-0.5 rounded-full uppercase tracking-wide">Super Admin</span>
-                                    )}
-                                    {player.role === 'admin' && (
-                                        <span className="text-[9px] bg-blue-500 text-white px-2 py-0.5 rounded-full uppercase tracking-wide">Admin</span>
-                                    )}
-                                </h4>
-                                <p className="text-xs text-gray-500 font-mono">#{player.participantNumber} • {player.phone}</p>
-                            </div>
-                        </div>
-                        
-                        {!isSelectionMode && isAnyAdmin && (
-                            <div className="flex items-center gap-3 justify-end mt-2 sm:mt-0">
-                                {/* Message Button */}
-                                {currentUser?.id !== player.id && (
-                                    <button
-                                        onClick={(e) => { e.stopPropagation(); openMessageModal(player); }}
-                                        className="p-2 text-gray-400 hover:text-blue-500 hover:bg-blue-50 rounded-full transition-all"
-                                        title="Enviar Mensagem"
-                                    >
-                                        💬
-                                    </button>
-                                )}
-
-                                {/* Super Admin Actions */}
-                                {currentUser?.role === 'super_admin' && player.id !== currentUser.id && (
-                                    <>
-                                        <button
-                                            onClick={(e) => { e.stopPropagation(); toggleAdminRole(player); }}
-                                            className={`px-3 py-1 rounded-full text-xs font-bold transition-colors ${
-                                                player.role === 'admin' 
-                                                ? 'bg-yellow-100 text-yellow-700 hover:bg-yellow-200' 
-                                                : 'bg-blue-100 text-blue-700 hover:bg-blue-200'
-                                            }`}
-                                        >
-                                            {player.role === 'admin' ? 'Despromover' : 'Promover'}
-                                        </button>
-                                        
-                                        <button
-                                            onClick={(e) => { e.stopPropagation(); resetUserPassword(player); }}
-                                            className="p-2 text-gray-400 hover:text-orange-500 hover:bg-orange-50 rounded-full transition-all"
-                                            title="Reset Password"
-                                        >
-                                            🔐
-                                        </button>
-                                    </>
-                                )}
-                                
-                                <button 
-                                    onClick={(e) => { e.stopPropagation(); setPlayerToDelete(player); }}
-                                    className="p-2 text-gray-300 hover:text-red-600 hover:bg-red-50 rounded-full transition-all"
-                                    title="Apagar Membro"
-                                >
-                                    🗑️
-                                </button>
-                            </div>
-                        )}
-                    </div>
-                );
-            })}
-            {activePlayers.length === 0 && (
-                <div className="p-8 text-center text-gray-400">
-                    Nenhum membro ativo encontrado.
-                </div>
-            )}
-        </div>
-      </div>
     </div>
   );
 };

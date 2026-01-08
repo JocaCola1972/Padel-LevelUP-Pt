@@ -22,6 +22,16 @@ let isSyncing = false;
 type DataChangeListener = () => void;
 const listeners: DataChangeListener[] = [];
 
+export const getSupabase = () => {
+    if (!supabase) {
+        supabase = createClient(SUPABASE_URL, SUPABASE_KEY, {
+            auth: { persistSession: true, autoRefreshToken: true },
+            realtime: { params: { eventsPerSecond: 40 } }
+        });
+    }
+    return supabase;
+};
+
 export const subscribeToChanges = (callback: DataChangeListener) => {
     listeners.push(callback);
     return () => {
@@ -34,40 +44,28 @@ const notifyListeners = () => {
     listeners.forEach(cb => cb());
 };
 
-export const isFirebaseConnected = () => isConnected;
+export const isSupabaseConnected = () => isConnected;
 export const getIsSyncing = () => isSyncing;
 
 export const initCloudSync = async () => {
-    if (supabase && isConnected) return;
-
-    try {
-        if (!supabase) {
-            supabase = createClient(SUPABASE_URL, SUPABASE_KEY, {
-                auth: { persistSession: false },
-                realtime: { 
-                    params: { eventsPerSecond: 40 },
-                    heartbeatIntervalMs: 3000 // Intervalo mais curto para detetar quedas
-                }
-            });
-        }
-        
-        await fetchAllData();
-        enableRealtimeSubscriptions();
-    } catch (e) {
-        console.error("Erro ao iniciar sincronização:", e);
-        setTimeout(initCloudSync, 5000);
-    }
+    await fetchAllData();
+    enableRealtimeSubscriptions();
 };
 
 export const fetchAllData = async () => {
-    if (!supabase) return;
+    const client = getSupabase();
     try {
-        const [p, r, m, msg, s] = await Promise.all([
-            supabase.from('players').select('*').order('participantNumber', { ascending: true }),
-            supabase.from('registrations').select('*'),
-            supabase.from('matches').select('*').order('timestamp', { ascending: false }),
-            supabase.from('messages').select('*').order('timestamp', { ascending: false }).limit(100),
-            supabase.from('settings').select('*')
+        const thirtyDaysAgo = new Date();
+        thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+        const thirtyDaysAgoStr = thirtyDaysAgo.toISOString().split('T')[0];
+
+        const [p, r, m, msg, config, settings] = await Promise.all([
+            client.from('players').select('*').order('participantNumber', { ascending: true }).limit(100),
+            client.from('registrations').select('*'),
+            client.from('matches').select('*').gte('date', thirtyDaysAgoStr).order('timestamp', { ascending: false }),
+            client.from('messages').select('*').order('timestamp', { ascending: false }).limit(50),
+            client.from('app_config').select('*').eq('id', 1).maybeSingle(),
+            client.from('settings').select('*')
         ]);
 
         if (p.data) localStorage.setItem(KEYS.PLAYERS, JSON.stringify(p.data));
@@ -75,39 +73,74 @@ export const fetchAllData = async () => {
         if (m.data) localStorage.setItem(KEYS.MATCHES, JSON.stringify(m.data));
         if (msg.data) localStorage.setItem(KEYS.MESSAGES, JSON.stringify(msg.data));
         
-        if (s.data) {
-            s.data.forEach((row: any) => {
-                if (row.key === 'appState') localStorage.setItem(KEYS.STATE, JSON.stringify(row.value));
-                if (row.key === 'masters') localStorage.setItem(KEYS.MASTERS, JSON.stringify(row.value));
-            });
+        if (config.data) {
+            const stateFromDb: AppState = {
+                registrationsOpen: config.data.registrations_open,
+                nextSundayDate: config.data.next_sunday_date,
+                autoOpenTime: config.data.auto_open_time,
+                isTournamentFinished: config.data.is_tournament_finished,
+                customLogo: config.data.custom_logo,
+                courtConfig: config.data.court_config,
+                gamesPerShift: config.data.games_per_shift,
+                passwordResetRequests: config.data.password_reset_requests || [],
+                adminSectionOrder: config.data.admin_section_order,
+                toolsSectionOrder: config.data.tools_section_order
+            };
+            localStorage.setItem(KEYS.STATE, JSON.stringify(stateFromDb));
         }
+
+        if (settings.data) {
+            const mastersRow = settings.data.find((row: any) => row.key === 'masters');
+            if (mastersRow) localStorage.setItem(KEYS.MASTERS, JSON.stringify(mastersRow.value));
+        }
+        
         notifyListeners();
     } catch (err) {
-        console.error("Erro ao descarregar dados:", err);
+        console.error("Erro ao sincronizar dados:", err);
     }
 };
 
-const enableRealtimeSubscriptions = () => {
-    if (!supabase) return;
+/**
+ * Carrega jogadores em lotes com suporte a pesquisa no servidor
+ */
+export const fetchPlayersBatch = async (offset: number, limit: number = 50, search?: string): Promise<Player[]> => {
+    const client = getSupabase();
+    let query = client
+        .from('players')
+        .select('*')
+        .order('participantNumber', { ascending: true });
     
-    if (syncChannel) {
-        supabase.removeChannel(syncChannel);
+    if (search) {
+        query = query.or(`name.ilike.%${search}%,phone.ilike.%${search}%`);
     }
 
-    syncChannel = supabase.channel('realtime-sync')
-        .on('postgres_changes', { event: '*', schema: 'public', table: 'players' }, handleRealtimeUpdate)
-        .on('postgres_changes', { event: '*', schema: 'public', table: 'registrations' }, handleRealtimeUpdate)
-        .on('postgres_changes', { event: '*', schema: 'public', table: 'matches' }, handleRealtimeUpdate)
-        .on('postgres_changes', { event: '*', schema: 'public', table: 'messages' }, handleRealtimeUpdate)
-        .on('postgres_changes', { event: '*', schema: 'public', table: 'settings' }, handleRealtimeUpdate)
+    const { data, error } = await query.range(offset, offset + limit - 1);
+    
+    if (error) throw error;
+    return data || [];
+};
+
+export const fetchMatchesByDate = async (date: string): Promise<MatchRecord[]> => {
+    const client = getSupabase();
+    const { data, error } = await client
+        .from('matches')
+        .select('*')
+        .eq('date', date)
+        .order('timestamp', { ascending: false });
+    
+    if (error) throw error;
+    return data || [];
+};
+
+const enableRealtimeSubscriptions = () => {
+    const client = getSupabase();
+    if (syncChannel) client.removeChannel(syncChannel);
+
+    syncChannel = client.channel('realtime-sync')
+        .on('postgres_changes', { event: '*', schema: 'public' }, handleRealtimeUpdate)
         .subscribe((status) => {
-            console.log("Supabase Realtime Status:", status);
             isConnected = (status === 'SUBSCRIBED');
             notifyListeners();
-            
-            if (status === 'CLOSED' || status === 'CHANNEL_ERROR') {
-                setTimeout(enableRealtimeSubscriptions, 5000);
-            }
         });
 };
 
@@ -115,16 +148,23 @@ const handleRealtimeUpdate = (payload: any) => {
     const { table, eventType, new: newRecord, old: oldRecord } = payload;
     const tableName = table.toLowerCase();
     
-    console.debug(`Realtime Update: ${tableName} (${eventType})`);
-
-    // Casos especiais de Configuração (Settings)
-    if (tableName === 'settings') {
+    if (tableName === 'app_config') {
         if (newRecord) {
-            const sKey = newRecord.key === 'appState' ? KEYS.STATE : (newRecord.key === 'masters' ? KEYS.MASTERS : null);
-            if (sKey) {
-                // Atualização ATÓMICA para evitar que o estado local "atropele" o servidor
-                localStorage.setItem(sKey, JSON.stringify(newRecord.value));
-            }
+            const currentLocal = getAppState();
+            const updatedState: AppState = {
+                ...currentLocal,
+                registrationsOpen: newRecord.registrations_open ?? currentLocal.registrationsOpen,
+                nextSundayDate: newRecord.next_sunday_date ?? currentLocal.nextSundayDate,
+                autoOpenTime: newRecord.auto_open_time ?? currentLocal.autoOpenTime,
+                isTournamentFinished: newRecord.is_tournament_finished ?? currentLocal.isTournamentFinished,
+                customLogo: newRecord.custom_logo ?? currentLocal.customLogo,
+                courtConfig: newRecord.court_config ?? currentLocal.courtConfig,
+                gamesPerShift: newRecord.games_per_shift ?? currentLocal.gamesPerShift,
+                passwordResetRequests: newRecord.password_reset_requests ?? currentLocal.passwordResetRequests,
+                adminSectionOrder: newRecord.admin_section_order ?? currentLocal.adminSectionOrder,
+                toolsSectionOrder: newRecord.tools_section_order ?? currentLocal.toolsSectionOrder,
+            };
+            localStorage.setItem(KEYS.STATE, JSON.stringify(updatedState));
         }
         notifyListeners();
         return;
@@ -136,15 +176,13 @@ const handleRealtimeUpdate = (payload: any) => {
         case 'registrations': storageKey = KEYS.REGISTRATIONS; break;
         case 'matches': storageKey = KEYS.MATCHES; break;
         case 'messages': storageKey = KEYS.MESSAGES; break;
+        case 'settings': if (newRecord?.key === 'masters') localStorage.setItem(KEYS.MASTERS, JSON.stringify(newRecord.value)); notifyListeners(); return;
         default: return;
     }
 
     let data = JSON.parse(localStorage.getItem(storageKey) || '[]');
-    
     if (eventType === 'INSERT') {
-        if (!data.find((i: any) => i.id === newRecord.id)) {
-            data.push(newRecord);
-        }
+        if (!data.find((i: any) => i.id === newRecord.id)) data.push(newRecord);
     } else if (eventType === 'UPDATE') {
         const idx = data.findIndex((i: any) => i.id === newRecord.id);
         if (idx >= 0) data[idx] = newRecord;
@@ -152,75 +190,109 @@ const handleRealtimeUpdate = (payload: any) => {
     } else if (eventType === 'DELETE') {
         data = data.filter((i: any) => i.id !== oldRecord.id);
     }
-
-    // Persistência local imediata
     localStorage.setItem(storageKey, JSON.stringify(data));
-    
-    // Notifica UI para re-renderizar
     notifyListeners();
+};
+
+export const signUp = async (name: string, phone: string, password?: string) => {
+    const client = getSupabase();
+    const email = `${phone}@padel.club`;
+    const { data, error } = await client.auth.signUp({
+        email,
+        password: password || 'padel123',
+        options: { data: { name, phone } }
+    });
+
+    if (error) throw error;
+    if (data.user) {
+        const { count } = await client.from('players').select('*', { count: 'exact', head: true });
+        const nextId = (count || 0) + 1;
+        
+        const newPlayer: Player = {
+            id: data.user.id,
+            name,
+            phone,
+            participantNumber: nextId,
+            totalPoints: 0,
+            gamesPlayed: 0,
+            isApproved: false,
+            role: 'user'
+        };
+        await client.from('players').insert(newPlayer);
+    }
+    return data.user;
+};
+
+export const signIn = async (phone: string, password?: string) => {
+    const client = getSupabase();
+    const email = `${phone}@padel.club`;
+    const { data, error } = await client.auth.signInWithPassword({
+        email,
+        password: password || 'padel123'
+    });
+    if (error) throw error;
+    return data.user;
+};
+
+export const signOut = async () => {
+    await getSupabase().auth.signOut();
+};
+
+export const uploadAvatar = async (playerId: string, file: File): Promise<string> => {
+    const client = getSupabase();
+    const fileExt = file.name.split('.').pop();
+    const fileName = `${playerId}-${Date.now()}.${fileExt}`;
+    const filePath = `avatars/${fileName}`;
+
+    const { error: uploadError } = await client.storage
+        .from('avatars')
+        .upload(filePath, file);
+
+    if (uploadError) throw uploadError;
+
+    const { data } = client.storage.from('avatars').getPublicUrl(filePath);
+    return data.publicUrl;
+};
+
+export const uploadSiteAsset = async (file: File, namePrefix: string): Promise<string> => {
+    const client = getSupabase();
+    const fileExt = file.name.split('.').pop();
+    const fileName = `${namePrefix}-${Date.now()}.${fileExt}`;
+    const filePath = `assets/${fileName}`;
+
+    const { error: uploadError } = await client.storage
+        .from('avatars') // Reusing same bucket but in assets/ folder for simplicity if configured to allow
+        .upload(filePath, file);
+
+    if (uploadError) throw uploadError;
+
+    const { data } = client.storage.from('avatars').getPublicUrl(filePath);
+    return data.publicUrl;
 };
 
 export const generateUUID = () => crypto.randomUUID?.() || Math.random().toString(36).substring(2) + Date.now().toString(36);
-
-const defaultState: AppState = {
-  registrationsOpen: false,
-  courtConfig: {
-    [Shift.MORNING_1]: { game: 7, training: 2 },
-    [Shift.MORNING_2]: { game: 8, training: 1 },
-    [Shift.MORNING_3]: { game: 9, training: 0 },
-  },
-  nextSundayDate: new Date().toISOString().split('T')[0], 
-  gamesPerShift: { [Shift.MORNING_1]: 4, [Shift.MORNING_2]: 4, [Shift.MORNING_3]: 5 },
-  passwordResetRequests: [],
-  adminSectionOrder: ['config', 'courts', 'report', 'registrations'],
-  toolsSectionOrder: ['visual', 'maintenance'],
-  autoOpenTime: '15:00'
-};
-
-const syncAction = async (task: Promise<any>) => {
-    isSyncing = true;
-    notifyListeners();
-    try {
-        const result = await task;
-        if (result.error) throw result.error;
-        return result;
-    } catch (e) {
-        console.error("Erro na ação de sincronização:", e);
-        throw e;
-    } finally {
-        isSyncing = false;
-        notifyListeners();
-    }
-};
-
 export const getPlayers = (): Player[] => JSON.parse(localStorage.getItem(KEYS.PLAYERS) || '[]');
 
 export const savePlayer = async (player: Player): Promise<void> => {
+    const client = getSupabase();
     const players = getPlayers();
-    if (!player.participantNumber || player.participantNumber === 0) {
-        const maxId = players.reduce((max, p) => Math.max(max, p.participantNumber || 0), 0);
-        player.participantNumber = maxId + 1;
-    }
-    
-    // Update local primeiro para feedback instantâneo (Optmistic UI)
-    const idx = players.findIndex(p => p.id === player.id || p.phone === player.phone);
+    const idx = players.findIndex(p => p.id === player.id);
     if (idx >= 0) players[idx] = { ...players[idx], ...player };
     else players.push(player);
     localStorage.setItem(KEYS.PLAYERS, JSON.stringify(players));
     notifyListeners();
-
-    if (supabase) await syncAction(supabase.from('players').upsert(player));
+    await client.from('players').upsert(player);
 };
 
 export const savePlayersBulk = async (ps: Partial<Player>[]): Promise<{ added: number, updated: number }> => {
+    const client = getSupabase();
     const current = getPlayers();
     let maxParticipantId = current.reduce((max, p) => Math.max(max, p.participantNumber || 0), 0);
     const newPlayers: Player[] = [];
-    
     ps.forEach(p => { 
         if(!current.find(c => c.phone === p.phone)) {
             maxParticipantId++;
-            const fullPlayer: Player = {
+            newPlayers.push({
                 id: generateUUID(),
                 name: p.name || 'Jogador',
                 phone: p.phone || '',
@@ -230,164 +302,88 @@ export const savePlayersBulk = async (ps: Partial<Player>[]): Promise<{ added: n
                 isApproved: true,
                 role: 'user',
                 ...p
-            };
-            current.push(fullPlayer);
-            newPlayers.push(fullPlayer);
+            });
         }
     });
-    
     if (newPlayers.length === 0) return { added: 0, updated: 0 };
-    localStorage.setItem(KEYS.PLAYERS, JSON.stringify(current));
-    notifyListeners();
-    if (supabase) await syncAction(supabase.from('players').insert(newPlayers));
+    await client.from('players').insert(newPlayers);
     return { added: newPlayers.length, updated: 0 };
 };
 
 export const updatePresence = async (playerId: string) => {
-    if (supabase) await supabase.from('players').update({ lastActive: Date.now() }).eq('id', playerId);
+    await getSupabase().from('players').update({ lastActive: Date.now() }).eq('id', playerId);
 };
 
 export const getRegistrations = (): Registration[] => JSON.parse(localStorage.getItem(KEYS.REGISTRATIONS) || '[]');
-
 export const addRegistration = async (reg: Registration): Promise<void> => {
-    const regs = getRegistrations();
-    if (!regs.find(r => r.id === reg.id)) {
-        regs.push(reg);
-        localStorage.setItem(KEYS.REGISTRATIONS, JSON.stringify(regs));
-        notifyListeners();
-        if (supabase) await syncAction(supabase.from('registrations').insert(reg));
-    }
+    await getSupabase().from('registrations').insert(reg);
 };
-
 export const updateRegistration = async (id: string, updates: Partial<Registration>): Promise<void> => {
-    const regs = getRegistrations();
-    const idx = regs.findIndex(r => r.id === id);
-    if (idx >= 0) {
-        regs[idx] = { ...regs[idx], ...updates };
-        localStorage.setItem(KEYS.REGISTRATIONS, JSON.stringify(regs));
-        notifyListeners();
-        if (supabase) await syncAction(supabase.from('registrations').update(updates).eq('id', id));
-    }
+    await getSupabase().from('registrations').update(updates).eq('id', id);
 };
-
 export const removeRegistration = async (id: string): Promise<void> => {
-    const regs = getRegistrations().filter(r => r.id !== id);
-    localStorage.setItem(KEYS.REGISTRATIONS, JSON.stringify(regs));
-    notifyListeners();
-    if (supabase) await syncAction(supabase.from('registrations').delete().eq('id', id));
+    await getSupabase().from('registrations').delete().eq('id', id);
 };
-
 export const clearAllRegistrations = async (): Promise<void> => {
-    localStorage.setItem(KEYS.REGISTRATIONS, '[]');
-    notifyListeners();
-    if (supabase) await syncAction(supabase.from('registrations').delete().neq('id', '0'));
+    await getSupabase().from('registrations').delete().neq('id', '0');
 };
 
 export const getMatches = (): MatchRecord[] => JSON.parse(localStorage.getItem(KEYS.MATCHES) || '[]');
 export const addMatch = async (match: MatchRecord, points: number): Promise<void> => {
-    const matches = getMatches();
-    matches.unshift(match);
-    localStorage.setItem(KEYS.MATCHES, JSON.stringify(matches));
-    
+    const client = getSupabase();
     const players = getPlayers();
     match.playerIds.forEach(pid => {
         const p = players.find(x => x.id === pid);
         if (p) { p.totalPoints += points; p.gamesPlayed += 1; }
     });
-    localStorage.setItem(KEYS.PLAYERS, JSON.stringify(players));
-    notifyListeners();
-    
-    if (supabase) await syncAction(Promise.all([
-        supabase.from('matches').insert(match),
-        supabase.from('players').upsert(players.filter(p => match.playerIds.includes(p.id)))
-    ]));
+    await Promise.all([
+        client.from('matches').insert(match),
+        client.from('players').upsert(players.filter(p => match.playerIds.includes(p.id)))
+    ]);
 };
 
 export const getMessages = (): Message[] => JSON.parse(localStorage.getItem(KEYS.MESSAGES) || '[]');
 export const saveMessage = async (msg: Message): Promise<void> => {
-    const m = getMessages(); m.unshift(msg);
-    localStorage.setItem(KEYS.MESSAGES, JSON.stringify(m));
-    notifyListeners();
-    if (supabase) await syncAction(supabase.from('messages').insert(msg));
+    await getSupabase().from('messages').insert(msg);
 };
 
 export const getAppState = (): AppState => {
     const data = localStorage.getItem(KEYS.STATE);
-    return data ? { ...defaultState, ...JSON.parse(data) } : defaultState;
+    return data ? JSON.parse(data) : { registrationsOpen: false, courtConfig: {}, nextSundayDate: '', gamesPerShift: {}, passwordResetRequests: [] };
 };
 
 export const updateAppState = async (updates: Partial<AppState>): Promise<void> => {
-    const current = getAppState();
-    const merged = { ...current, ...updates };
-    
-    // Atualização local imediata
-    localStorage.setItem(KEYS.STATE, JSON.stringify(merged));
-    notifyListeners();
+    const dbUpdates: any = {};
+    if (updates.registrationsOpen !== undefined) dbUpdates.registrations_open = updates.registrationsOpen;
+    if (updates.nextSundayDate !== undefined) dbUpdates.next_sunday_date = updates.nextSundayDate;
+    if (updates.autoOpenTime !== undefined) dbUpdates.auto_open_time = updates.autoOpenTime;
+    if (updates.isTournamentFinished !== undefined) dbUpdates.is_tournament_finished = updates.isTournamentFinished;
+    if (updates.customLogo !== undefined) dbUpdates.custom_logo = updates.customLogo;
+    if (updates.courtConfig !== undefined) dbUpdates.court_config = updates.courtConfig;
+    if (updates.gamesPerShift !== undefined) dbUpdates.games_per_shift = updates.gamesPerShift;
+    if (updates.passwordResetRequests !== undefined) dbUpdates.password_reset_requests = updates.passwordResetRequests;
+    if (updates.adminSectionOrder !== undefined) dbUpdates.admin_section_order = updates.adminSectionOrder;
+    if (updates.toolsSectionOrder !== undefined) dbUpdates.tools_section_order = updates.toolsSectionOrder;
 
-    if (supabase) {
-        // ESSENCIAL: onConflict: 'key' garante que o Supabase atualiza a linha correta sem duplicar ou reverter
-        await syncAction(supabase.from('settings').upsert({ key: 'appState', value: merged }, { onConflict: 'key' }));
-    }
+    await getSupabase().from('app_config').update(dbUpdates).eq('id', 1);
 };
 
 export const saveMastersState = async (state: MastersState): Promise<void> => {
-    localStorage.setItem(KEYS.MASTERS, JSON.stringify(state));
-    notifyListeners();
-    if (supabase) await syncAction(supabase.from('settings').upsert({ key: 'masters', value: state }, { onConflict: 'key' }));
+    await getSupabase().from('settings').upsert({ key: 'masters', value: state }, { onConflict: 'key' });
 };
 
 export const approvePlayer = async (id: string) => {
-    const p = getPlayers();
-    const i = p.find(x => x.id === id);
-    if(i) { i.isApproved = true; await savePlayer(i); }
+    await getSupabase().from('players').update({ isApproved: true }).eq('id', id);
 };
-export const approveAllPendingPlayers = async () => {
-    const p = getPlayers();
-    p.forEach(x => x.isApproved = true);
-    localStorage.setItem(KEYS.PLAYERS, JSON.stringify(p));
-    notifyListeners();
-    if (supabase) await syncAction(supabase.from('players').update({ isApproved: true }).eq('isApproved', false));
-};
+
 export const removePlayer = async (id: string) => {
-    const p = getPlayers().filter(x => x.id !== id);
-    localStorage.setItem(KEYS.PLAYERS, JSON.stringify(p));
-    notifyListeners();
-    if (supabase) await syncAction(supabase.from('players').delete().eq('id', id));
-};
-
-export const resolvePasswordReset = async (id: string, approve: boolean) => {
-    const s = getAppState();
-    const req = s.passwordResetRequests.find(x => x.id === id);
-    if (req && approve) {
-        const p = getPlayers();
-        const i = p.find(x => x.id === req.playerId);
-        if (i) { i.password = undefined; await savePlayer(i); }
-    }
-    await updateAppState({ passwordResetRequests: s.passwordResetRequests.filter(x => x.id !== id) });
-};
-
-export const requestPasswordReset = async (phone: string): Promise<boolean> => {
-    const player = getPlayerByPhone(phone);
-    if (!player) return false;
-    const state = getAppState();
-    const newRequest: PasswordResetRequest = {
-        id: generateUUID(),
-        playerId: player.id,
-        playerName: player.name,
-        playerPhone: player.phone,
-        timestamp: Date.now()
-    };
-    const requests = [...(state.passwordResetRequests || []), newRequest];
-    await updateAppState({ passwordResetRequests: requests });
-    return true;
+    await getSupabase().from('players').delete().eq('id', id);
 };
 
 export const deleteMatchesByDate = async (d: string) => {
-    const matches = getMatches();
-    const toRemove = matches.filter(x => x.date === d);
-    const remaining = matches.filter(x => x.date !== d);
+    const matches = getMatches().filter(x => x.date === d);
     const players = getPlayers();
-    toRemove.forEach(match => {
+    matches.forEach(match => {
         const pts = match.result === GameResult.WIN ? 4 : (match.result === GameResult.DRAW ? 2 : 1);
         match.playerIds.forEach(pid => {
             const p = players.find(x => x.id === pid);
@@ -397,21 +393,16 @@ export const deleteMatchesByDate = async (d: string) => {
             }
         });
     });
-    localStorage.setItem(KEYS.MATCHES, JSON.stringify(remaining));
-    localStorage.setItem(KEYS.PLAYERS, JSON.stringify(players));
-    notifyListeners();
-    if (supabase) await syncAction(Promise.all([
-        supabase.from('matches').delete().eq('date', d),
-        supabase.from('players').upsert(players)
-    ]));
+    await Promise.all([
+        getSupabase().from('matches').delete().eq('date', d),
+        getSupabase().from('players').upsert(players)
+    ]);
 };
 
 export const clearMatchesByShift = async (shift: Shift) => {
-    const matches = getMatches();
-    const toRemove = matches.filter(x => x.shift === shift);
-    const remaining = matches.filter(x => x.shift !== shift);
+    const matches = getMatches().filter(x => x.shift === shift);
     const players = getPlayers();
-    toRemove.forEach(match => {
+    matches.forEach(match => {
         const pts = match.result === GameResult.WIN ? 4 : (match.result === GameResult.DRAW ? 2 : 1);
         match.playerIds.forEach(pid => {
             const p = players.find(x => x.id === pid);
@@ -421,49 +412,47 @@ export const clearMatchesByShift = async (shift: Shift) => {
             }
         });
     });
-    localStorage.setItem(KEYS.MATCHES, JSON.stringify(remaining));
-    localStorage.setItem(KEYS.PLAYERS, JSON.stringify(players));
-    notifyListeners();
-    if (supabase) await syncAction(Promise.all([
-        supabase.from('matches').delete().eq('shift', shift),
-        supabase.from('players').upsert(players)
-    ]));
+    await Promise.all([
+        getSupabase().from('matches').delete().eq('shift', shift),
+        getSupabase().from('players').upsert(players)
+    ]);
 };
 
 export const deleteRegistrationsByDate = async (d: string) => {
-    const r = getRegistrations().filter(x => x.date !== d);
-    localStorage.setItem(KEYS.REGISTRATIONS, JSON.stringify(r));
-    notifyListeners();
-    if (supabase) await syncAction(supabase.from('registrations').delete().eq('date', d));
+    await getSupabase().from('registrations').delete().eq('date', d);
 };
 
 export const markMessageAsRead = async (id: string) => {
-    const m = getMessages();
-    const i = m.find(x => x.id === id);
-    if (i) { i.read = true; localStorage.setItem(KEYS.MESSAGES, JSON.stringify(m)); notifyListeners(); if (supabase) await supabase.from('messages').update({ read: true }).eq('id', id); }
+    await getSupabase().from('messages').update({ read: true }).eq('id', id);
 };
 
-export const deleteMessageForUser = async (id: string): Promise<void> => {
-    let m = getMessages().filter(x => x.id !== id);
-    localStorage.setItem(KEYS.MESSAGES, JSON.stringify(m));
-    notifyListeners();
-    if (supabase) await syncAction(supabase.from('messages').delete().eq('id', id));
-};
-
-export const deleteAllMessagesForUser = async (uid: string) => {
-    const m = getMessages().filter(x => x.receiverId !== uid && x.receiverId !== 'ALL');
-    localStorage.setItem(KEYS.MESSAGES, JSON.stringify(m));
-    notifyListeners();
-    if (supabase) await syncAction(supabase.from('messages').delete().eq('receiverId', uid));
-};
-
-export const clearAllMessages = async () => {
-    localStorage.setItem(KEYS.MESSAGES, '[]');
-    notifyListeners();
-    if (supabase) await syncAction(supabase.from('messages').delete().neq('id', '0'));
+export const deleteMessageForUser = async (id: string) => {
+    await getSupabase().from('messages').delete().eq('id', id);
 };
 
 export const getUnreadCount = (uid: string) => getMessages().filter(m => (m.receiverId === uid || m.receiverId === 'ALL') && !m.read).length;
 export const getPlayerByPhone = (ph: string) => getPlayers().find(p => p.phone === ph);
-export const getMastersState = (): MastersState => JSON.parse(localStorage.getItem(KEYS.MASTERS) || '{"teams":[], "matches":[], "currentPhase":1, "pool":[]}');
 export const getMessagesForUser = (uid: string) => getMessages().filter(m => m.receiverId === uid || m.receiverId === 'ALL');
+
+export const getMastersState = (): MastersState => {
+    const data = localStorage.getItem(KEYS.MASTERS);
+    return data ? JSON.parse(data) : { teams: [], matches: [], currentPhase: 1, pool: [] };
+};
+
+export const resolvePasswordReset = async (reqId: string, approve: boolean) => {
+    const state = getAppState();
+    const newRequests = (state.passwordResetRequests || []).filter(r => r.id !== reqId);
+    await updateAppState({ passwordResetRequests: newRequests });
+};
+
+export const approveAllPendingPlayers = async () => {
+    await getSupabase().from('players').update({ isApproved: true }).eq('isApproved', false);
+};
+
+export const deleteAllMessagesForUser = async (uid: string) => {
+    await getSupabase().from('messages').delete().eq('receiverId', uid);
+};
+
+export const clearAllMessages = async () => {
+    await getSupabase().from('messages').delete().neq('id', '0');
+};

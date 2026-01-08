@@ -1,20 +1,23 @@
 
 import React, { useEffect, useState } from 'react';
 import { Player, Registration, AppState, Shift } from '../types';
-import { getPlayers, getRegistrations, getAppState, subscribeToChanges, isFirebaseConnected } from '../services/storageService';
+// Fix: Use isSupabaseConnected instead of missing isFirebaseConnected
+import { getPlayers, getRegistrations, getAppState, subscribeToChanges, isSupabaseConnected } from '../services/storageService';
 
 export const InscritosList: React.FC = () => {
   const [registrations, setRegistrations] = useState<Registration[]>([]);
   const [players, setPlayers] = useState<Player[]>([]);
   const [appState, setAppState] = useState<AppState>(getAppState());
-  const [isLive, setIsLive] = useState(isFirebaseConnected());
+  // Fix: Use isSupabaseConnected instead of missing isFirebaseConnected
+  const [isLive, setIsLive] = useState(isSupabaseConnected());
   const [lastUpdate, setLastUpdate] = useState<number>(Date.now());
 
   const loadData = () => {
     setAppState(getAppState());
     setPlayers(getPlayers());
     setRegistrations(getRegistrations());
-    setIsLive(isFirebaseConnected());
+    // Fix: Use isSupabaseConnected instead of missing isFirebaseConnected
+    setIsLive(isSupabaseConnected());
     setLastUpdate(Date.now());
   };
 
@@ -165,7 +168,7 @@ export const InscritosList: React.FC = () => {
                                   </h4>
                                   <div className="text-right">
                                       <span className="text-[10px] font-bold text-gray-400 uppercase block">{trainOcc} / {trainCap} Vagas</span>
-                                      <span className={`px-2 py-0.5 rounded-full text-[8px] font-black uppercase ${trainOcc >= trainCap ? 'bg-red-500/20 text-red-500' : 'bg-orange-500/20 text-orange-600'}`}>
+                                      <span className={`px-2 py-0.5 rounded-full text-[8px] font-black uppercase ${trainOcc >= trainCap ? 'bg-red-500/20 text-red-500' : 'bg-orange-50/20 text-orange-600'}`}>
                                           {trainOcc >= trainCap ? 'Esgotado' : 'Disponível'}
                                       </span>
                                   </div>

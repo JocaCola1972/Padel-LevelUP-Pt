@@ -1,131 +1,54 @@
 
 import React, { useState } from 'react';
 import { Player } from '../types';
-import { savePlayer, getPlayerByPhone, generateUUID, requestPasswordReset, getAppState } from '../services/storageService';
+import { signUp, signIn, getAppState } from '../services/storageService';
 import { Button } from './Button';
 
 interface PlayerFormProps {
   initialMode: 'login' | 'register';
-  onLogin: (player: Player) => void;
   onBack: () => void;
 }
 
-export const PlayerForm: React.FC<PlayerFormProps> = ({ initialMode, onLogin, onBack }) => {
+export const PlayerForm: React.FC<PlayerFormProps> = ({ initialMode, onBack }) => {
   const state = getAppState();
-  const [mode, setMode] = useState<'login' | 'register' | 'recover'>('login');
-  
-  // Login State
+  const [mode, setMode] = useState<'login' | 'register' | 'recover'>(initialMode);
   const [phone, setPhone] = useState('');
   const [password, setPassword] = useState('');
-  const [requirePassword, setRequirePassword] = useState(false);
-  const [tempPlayer, setTempPlayer] = useState<Player | null>(null);
-
-  // Register State
   const [newName, setNewName] = useState('');
-  
   const [error, setError] = useState('');
-  const [success, setSuccess] = useState('');
+  const [isLoading, setIsLoading] = useState(false);
 
-  const switchMode = (newMode: 'login' | 'register' | 'recover') => {
-      setMode(newMode);
-      setError('');
-      setSuccess('');
-      setRequirePassword(false);
-      setPassword('');
-  };
-
-  const attemptLogin = (player: Player) => {
-      if (player.isApproved === false) {
-          setError('A tua conta ainda está a aguardar aprovação do administrador.');
-          setRequirePassword(false);
-          setTempPlayer(null);
-          return;
-      }
-      onLogin(player);
-  };
-
-  const handleLoginSubmit = (e: React.FormEvent) => {
+  const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
-
-    if (!requirePassword) {
-        const isSpecialAdmin = phone === "JocaCola";
-        if (!isSpecialAdmin && phone.length < 9) {
-            setError('Utilizador ou telemóvel inválido');
-            return;
-        }
-
-        const existingPlayer = getPlayerByPhone(phone);
-        if (existingPlayer) {
-            if (existingPlayer.password) {
-                setTempPlayer(existingPlayer);
-                setRequirePassword(true);
-            } else {
-                attemptLogin(existingPlayer);
-            }
-        } else {
-            setError('Utilizador não encontrado. Cria a tua ficha primeiro.');
-        }
-    } else {
-        if (tempPlayer && tempPlayer.password === password) {
-            attemptLogin(tempPlayer);
-        } else {
-            setError('Password incorreta.');
-        }
+    setIsLoading(true);
+    try {
+      await signIn(phone, password);
+      // O App.tsx deteta a mudança de sessão automaticamente
+    } catch (err: any) {
+      setError(err.message === "Invalid login credentials" ? "Credenciais inválidas." : err.message);
+    } finally {
+      setIsLoading(false);
     }
   };
 
-  const handleRegisterSubmit = (e: React.FormEvent) => {
+  const handleRegister = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newName.trim() || phone.length < 9) {
-      setError('Preenche todos os campos corretamente.');
+    setError('');
+    if (!newName || phone.length < 9) {
+      setError("Preencha todos os campos.");
       return;
     }
-
-    const existingPlayer = getPlayerByPhone(phone);
-    if (existingPlayer) {
-      setError('Este número já está registado. Faz login.');
-      return;
+    setIsLoading(true);
+    try {
+      await signUp(newName, phone, password);
+      alert("Ficha criada! Aguarda aprovação do administrador.");
+      setMode('login');
+    } catch (err: any) {
+      setError(err.message);
+    } finally {
+      setIsLoading(false);
     }
-
-    const newPlayer: Player = {
-      id: generateUUID(),
-      name: newName,
-      phone,
-      totalPoints: 0,
-      gamesPlayed: 0,
-      participantNumber: 0,
-      isApproved: false
-    };
-
-    savePlayer(newPlayer);
-    setSuccess('Ficha criada! Aguarda a aprovação para entrar.');
-    setNewName('');
-    setTimeout(() => switchMode('login'), 3000);
-  };
-
-  // Fix: handleRecoverSubmit must be async to properly await the storage service call
-  const handleRecoverSubmit = async (e: React.FormEvent) => {
-      e.preventDefault();
-      setError('');
-      setSuccess('');
-      if (phone.length < 9) {
-          setError('Telemóvel inválido.');
-          return;
-      }
-      const sent = await requestPasswordReset(phone);
-      if (sent) {
-          setSuccess('Pedido enviado ao Super Admin.');
-      } else {
-          setError('Número não encontrado.');
-      }
-  };
-
-  const resetLogin = () => {
-      setRequirePassword(false);
-      setTempPlayer(null);
-      setPassword('');
-      setError('');
   };
 
   return (
@@ -134,150 +57,44 @@ export const PlayerForm: React.FC<PlayerFormProps> = ({ initialMode, onLogin, on
       <div className="auth-overlay"></div>
       
       <div className="bg-white/95 backdrop-blur-md p-8 rounded-2xl shadow-2xl w-full max-w-md border border-white/20 relative">
-        <button 
-            onClick={() => {
-                if (requirePassword) resetLogin();
-                else if (mode === 'recover') switchMode('login');
-                else onBack();
-            }}
-            className="absolute top-4 left-4 text-gray-400 hover:text-gray-600 transition-colors font-bold"
-        >
-            ← Voltar
-        </button>
+        <button onClick={onBack} className="absolute top-4 left-4 text-gray-400 hover:text-gray-600 font-bold">← Voltar</button>
 
         <div className="text-center mb-6 mt-4 flex flex-col items-center">
-          <div className="w-24 h-24 bg-white rounded-full flex items-center justify-center shadow-lg mb-4 border-2 border-padel p-1">
+          <div className="w-20 h-20 bg-white rounded-full flex items-center justify-center shadow-lg mb-4 border-2 border-padel p-1">
              <img src={state.customLogo || 'https://raw.githubusercontent.com/fabiolb/padel-levelup/main/logo.png'} alt="Logo" className="w-full h-full object-contain rounded-full" />
           </div>
-          <h1 className="text-2xl font-black text-gray-800 mb-1 italic transform -skew-x-6">
-            Padel <span className="text-padel">LevelUP</span>
-          </h1>
-          <p className="text-gray-500 font-medium text-xs uppercase tracking-widest">
-            {mode === 'login' ? (requirePassword ? `Olá, ${tempPlayer?.name}` : 'Acesso à Liga') : 
-             mode === 'register' ? 'Nova Ficha de Jogador' : 'Recuperar Acesso'}
-          </p>
+          <h1 className="text-2xl font-black text-gray-800 italic transform -skew-x-6">Padel <span className="text-padel">LevelUP</span></h1>
+          <p className="text-gray-500 font-medium text-[10px] uppercase tracking-widest">{mode === 'login' ? 'Acesso Seguro' : 'Nova Ficha'}</p>
         </div>
 
-        {mode === 'login' && (
-          <form onSubmit={handleLoginSubmit} className="space-y-4">
-            {!requirePassword ? (
-                <div>
-                    <label className="block text-[10px] font-black text-gray-500 uppercase mb-1 ml-1">Utilizador ou Telemóvel</label>
-                    <input
-                        type="text"
-                        value={phone}
-                        onChange={(e) => setPhone(e.target.value)}
-                        className="w-full p-4 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-padel focus:border-transparent outline-none transition-all font-mono text-lg text-gray-900 placeholder-gray-300"
-                        placeholder="Ex: 912345678"
-                        autoFocus
-                        required
-                    />
-                </div>
-            ) : (
-                <div className="animate-slide-down">
-                    <label className="block text-[10px] font-black text-gray-500 uppercase mb-1 ml-1">Password</label>
-                    <input
-                        type="password"
-                        value={password}
-                        onChange={(e) => setPassword(e.target.value)}
-                        className="w-full p-4 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-padel focus:border-transparent outline-none transition-all text-lg text-gray-900 placeholder-gray-300"
-                        placeholder="••••••••"
-                        autoFocus
-                        required
-                    />
-                    <div className="mt-2 text-right">
-                        <button type="button" onClick={resetLogin} className="text-[10px] text-padel font-bold uppercase hover:underline">
-                            Não sou o {tempPlayer?.name}?
-                        </button>
-                    </div>
-                </div>
-            )}
-
-            {error && <p className="text-red-500 text-xs bg-red-50 p-3 rounded-lg border border-red-100 font-medium">{error}</p>}
-            {success && <p className="text-green-600 text-xs bg-green-50 p-3 rounded-lg border border-green-100 font-bold">{success}</p>}
-            
-            <Button type="submit" className="w-full py-4 text-lg shadow-lg font-black italic transform hover:scale-105 active:scale-95 transition-transform">
-                {requirePassword ? 'CONFIRMAR' : 'ENTRAR'}
-            </Button>
-            
-            {!requirePassword && (
-                <div className="space-y-3 text-center mt-6">
-                    <p className="text-xs text-gray-500">
-                        Ainda não tens ficha? <button type="button" onClick={() => switchMode('register')} className="text-padel font-black hover:underline uppercase">Criar Agora</button>
-                    </p>
-                    <button type="button" onClick={() => switchMode('recover')} className="text-[10px] text-gray-400 hover:text-padel font-bold uppercase tracking-tighter">
-                        Esqueci-me da Password
-                    </button>
-                </div>
-            )}
-          </form>
-        )}
-
-        {mode === 'register' && (
-          <form onSubmit={handleRegisterSubmit} className="space-y-4">
+        <form onSubmit={mode === 'login' ? handleLogin : handleRegister} className="space-y-4">
+          {mode === 'register' && (
             <div>
-              <label className="block text-[10px] font-black text-gray-500 uppercase mb-1 ml-1">Nome Completo</label>
-              <input
-                type="text"
-                value={newName}
-                onChange={(e) => setNewName(e.target.value)}
-                className="w-full p-4 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-padel outline-none transition-all text-gray-900 placeholder-gray-300"
-                placeholder="Ex: João Silva"
-                required
-              />
+              <label className="block text-[10px] font-black text-gray-500 uppercase mb-1">Nome Completo</label>
+              <input type="text" value={newName} onChange={e => setNewName(e.target.value)} className="w-full p-4 bg-gray-50 border rounded-xl outline-none" placeholder="João Silva" required />
             </div>
-            <div>
-              <label className="block text-[10px] font-black text-gray-500 uppercase mb-1 ml-1">Telemóvel</label>
-              <input
-                type="tel"
-                value={phone}
-                onChange={(e) => setPhone(e.target.value)}
-                className="w-full p-4 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-padel outline-none transition-all font-mono text-lg text-gray-900 placeholder-gray-300"
-                placeholder="912345678"
-                required
-              />
-            </div>
-            {error && <p className="text-red-500 text-xs bg-red-50 p-3 rounded-lg border border-red-100 font-medium">{error}</p>}
-            {success && <p className="text-green-600 text-xs bg-green-50 p-3 rounded-lg border border-green-100 font-bold">{success}</p>}
-            
-            <Button type="submit" className="w-full py-4 text-lg font-black italic">CRIAR FICHA</Button>
-            
-            <p className="text-center text-xs text-gray-500 mt-6">
-              Já tens conta? <button type="button" onClick={() => switchMode('login')} className="text-padel font-black hover:underline uppercase">Fazer Login</button>
-            </p>
-          </form>
-        )}
+          )}
+          <div>
+            <label className="block text-[10px] font-black text-gray-500 uppercase mb-1">Telemóvel</label>
+            <input type="tel" value={phone} onChange={e => setPhone(e.target.value)} className="w-full p-4 bg-gray-50 border rounded-xl font-mono text-lg" placeholder="912345678" required />
+          </div>
+          <div>
+            <label className="block text-[10px] font-black text-gray-500 uppercase mb-1">Password</label>
+            <input type="password" value={password} onChange={e => setPassword(e.target.value)} className="w-full p-4 bg-gray-50 border rounded-xl" placeholder="••••••••" required />
+          </div>
 
-        {mode === 'recover' && (
-            <form onSubmit={handleRecoverSubmit} className="space-y-4">
-                <div className="text-center p-3 bg-blue-50 text-blue-700 text-[11px] font-medium rounded-lg mb-4 border border-blue-100">
-                    Insere o teu telemóvel para pedir um reset de password ao administrador.
-                </div>
-
-                <div>
-                    <label className="block text-[10px] font-black text-gray-500 uppercase mb-1 ml-1">Telemóvel</label>
-                    <input
-                        type="tel"
-                        value={phone}
-                        onChange={(e) => setPhone(e.target.value)}
-                        className="w-full p-4 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-padel outline-none transition-all font-mono text-lg text-gray-900 placeholder-gray-300"
-                        placeholder="912345678"
-                        required
-                    />
-                </div>
-                
-                {error && <p className="text-red-500 text-xs bg-red-50 p-3 rounded-lg border border-red-100 font-medium">{error}</p>}
-                {success && <p className="text-green-600 text-xs bg-green-50 p-3 rounded-lg border border-green-100 font-bold">{success}</p>}
-
-                <Button type="submit" className="w-full py-4 text-lg font-black italic" disabled={!!success}>
-                    PEDIR RESET
-                </Button>
-
-                <p className="text-center text-xs text-gray-500 mt-6">
-                    <button type="button" onClick={() => switchMode('login')} className="text-padel font-black hover:underline uppercase">Voltar</button>
-                </p>
-            </form>
-        )}
+          {error && <p className="text-red-500 text-xs bg-red-50 p-3 rounded-lg border border-red-100">{error}</p>}
+          
+          <Button type="submit" className="w-full py-4 text-lg font-black italic" isLoading={isLoading}>
+              {mode === 'login' ? 'ENTRAR' : 'CRIAR CONTA'}
+          </Button>
+          
+          <div className="text-center mt-6">
+            <button type="button" onClick={() => setMode(mode === 'login' ? 'register' : 'login')} className="text-padel font-black hover:underline uppercase text-xs">
+                {mode === 'login' ? 'Ainda não tenho ficha' : 'Já tenho conta'}
+            </button>
+          </div>
+        </form>
       </div>
     </div>
   );

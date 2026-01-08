@@ -86,10 +86,9 @@ export const RegistrationPanel: React.FC<RegistrationPanelProps> = ({ currentUse
   useEffect(() => {
     loadData();
     const unsubscribe = subscribeToChanges(loadData);
-    const interval = setInterval(loadData, 30000); // Check every 30s for auto-open
+    // Polling redundante removido. O checkAutoOpen será executado no loadData despoletado pelo Realtime ou carga inicial.
     return () => {
         unsubscribe();
-        clearInterval(interval);
     };
   }, [currentUser.id]);
 

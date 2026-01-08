@@ -15,27 +15,14 @@ import { NotificationModal } from './components/NotificationModal';
 import { LevelUpInfo } from './components/LevelUpInfo';
 import { ToolsPanel } from './components/ToolsPanel';
 import { generateTacticalTip } from './services/geminiService';
-import { getAppState, getUnreadCount, initCloudSync, isFirebaseConnected, subscribeToChanges, getPlayers, updatePresence, getIsSyncing, fetchAllData } from './services/storageService';
+import { getAppState, getUnreadCount, initCloudSync, isSupabaseConnected, subscribeToChanges, getPlayers, updatePresence, getIsSyncing, fetchAllData, getSupabase, signOut } from './services/storageService';
 
 enum Tab { LEVELUP = 'levelup', REGISTRATION = 'registrations', INSCRITOS = 'inscritos', MATCHES = 'matches', RANKING = 'ranking', MEMBERS = 'members', MASTERS = 'masters', ADMIN = 'admin', TOOLS = 'tools' }
 enum ViewState { LANDING = 'landing', AUTH = 'auth', APP = 'app' }
-const SESSION_KEY = 'padel_levelup_session_user_id';
 
 const App: React.FC = () => {
-  const getInitialUser = (): Player | null => {
-    const savedUserId = localStorage.getItem(SESSION_KEY);
-    if (!savedUserId) return null;
-    const playersData = localStorage.getItem('padel_players');
-    if (!playersData) return null;
-    try {
-        const players: Player[] = JSON.parse(playersData);
-        const found = players.find(p => p.id === savedUserId);
-        return (found && found.isApproved !== false) ? found : null;
-    } catch (e) { return null; }
-  };
-
-  const [currentUser, setCurrentUser] = useState<Player | null>(getInitialUser());
-  const [viewState, setViewState] = useState<ViewState>(currentUser ? ViewState.APP : ViewState.LANDING);
+  const [currentUser, setCurrentUser] = useState<Player | null>(null);
+  const [viewState, setViewState] = useState<ViewState>(ViewState.LANDING);
   const [authMode, setAuthMode] = useState<'login' | 'register'>('login');
   const [activeTab, setActiveTab] = useState<Tab>(Tab.LEVELUP);
   const [tip, setTip] = useState<string>('');
@@ -45,17 +32,27 @@ const App: React.FC = () => {
   const [isConnected, setIsConnected] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
 
-  // Memoized refresh function to prevent dependency issues
+  const refreshUser = useCallback((userId: string) => {
+      const players = getPlayers();
+      const found = players.find(p => p.id === userId);
+      if (found) {
+          if (found.isApproved === false) {
+              handleLogout();
+              alert("A tua conta aguarda aprovação.");
+          } else {
+              setCurrentUser(found);
+              setViewState(ViewState.APP);
+          }
+      }
+  }, []);
+
   const refreshState = useCallback(() => {
-      setIsConnected(isFirebaseConnected());
+      setIsConnected(isSupabaseConnected());
       setIsUploading(getIsSyncing());
-      
       if (currentUser) {
           setUnreadMessagesCount(getUnreadCount(currentUser.id));
           const players = getPlayers();
           const fresh = players.find(p => p.id === currentUser.id);
-          
-          // Se o utilizador logado mudar (ex: admin mudou o seu papel ou nome), atualiza localmente
           if (fresh && JSON.stringify(fresh) !== JSON.stringify(currentUser)) {
               setCurrentUser(fresh);
           }
@@ -63,65 +60,47 @@ const App: React.FC = () => {
   }, [currentUser]);
 
   useEffect(() => {
-    const appState = getAppState();
-    const favicon = document.getElementById('favicon') as HTMLLinkElement;
-    if (favicon && appState.customLogo) {
-      favicon.href = appState.customLogo;
-    }
-  }, [viewState]);
+    const client = getSupabase();
+    
+    // Escuta alterações na sessão (Auth Nativo)
+    client.auth.onAuthStateChange((event, session) => {
+        if (session?.user) {
+            refreshUser(session.user.id);
+        } else {
+            setCurrentUser(null);
+            setViewState(ViewState.LANDING);
+        }
+    });
 
-  useEffect(() => {
-    // Liga ao Supabase mal a App começa
     initCloudSync();
     generateTacticalTip().then(setTip);
-    
-    // Subscreve a qualquer mudança enviada pelo servidor
     const unsubscribe = subscribeToChanges(refreshState);
     
     const handleVisibilityChange = () => {
-        if (document.visibilityState === 'visible') {
-            fetchAllData().then(refreshState);
-        }
+        if (document.visibilityState === 'visible') fetchAllData().then(refreshState);
     };
-
     window.addEventListener('visibilitychange', handleVisibilityChange);
-    
-    // Refresh inicial
-    refreshState();
 
     return () => { 
         unsubscribe();
         window.removeEventListener('visibilitychange', handleVisibilityChange);
     };
-  }, [refreshState]);
+  }, [refreshState, refreshUser]);
 
-  // Heartbeat de presença separado para não interferir com a UI
   useEffect(() => {
       if (!currentUser) return;
-      
-      const presenceInterval = setInterval(() => {
-          updatePresence(currentUser.id);
-      }, 60000); 
-
+      const presenceInterval = setInterval(() => updatePresence(currentUser.id), 60000); 
       return () => clearInterval(presenceInterval);
   }, [currentUser?.id]);
 
-  const handleLoginSuccess = (player: Player) => {
-    localStorage.setItem(SESSION_KEY, player.id);
-    setCurrentUser(player);
-    updatePresence(player.id);
-    setViewState(ViewState.APP);
-    setActiveTab(Tab.LEVELUP);
-  };
-
   const handleLogout = () => {
-    localStorage.removeItem(SESSION_KEY);
+    signOut();
     setCurrentUser(null);
     setViewState(ViewState.LANDING);
   };
 
   if (viewState === ViewState.LANDING) return <LandingPage onNavigate={(mode) => { setAuthMode(mode); setViewState(ViewState.AUTH); }} />;
-  if (viewState === ViewState.AUTH) return <PlayerForm initialMode={authMode} onLogin={handleLoginSuccess} onBack={() => setViewState(ViewState.LANDING)} />;
+  if (viewState === ViewState.AUTH) return <PlayerForm initialMode={authMode} onBack={() => setViewState(ViewState.LANDING)} />;
   if (!currentUser) return null;
 
   const isAdmin = currentUser.role === 'admin' || currentUser.role === 'super_admin';
@@ -133,32 +112,18 @@ const App: React.FC = () => {
           <div className="flex items-center gap-2">
             <h1 className="text-xl font-black italic text-padel-dark transform -skew-x-6">Padel LevelUp</h1>
             <div className="flex items-center gap-1.5 ml-1">
-                <div 
-                    className={`w-2.5 h-2.5 rounded-full transition-all duration-300 ${isConnected ? 'bg-green-500 shadow-[0_0_8px_#22c55e]' : 'bg-red-500 shadow-[0_0_8px_#ef4444] animate-pulse'}`} 
-                    title={isConnected ? "Sincronizado em tempo real" : "A tentar ligar..."}
-                ></div>
-                {isUploading && (
-                    <div className="w-1.5 h-1.5 bg-blue-500 rounded-full animate-ping"></div>
-                )}
+                <div className={`w-2.5 h-2.5 rounded-full transition-all duration-300 ${isConnected ? 'bg-green-500 shadow-[0_0_8px_#22c55e]' : 'bg-red-500 shadow-[0_0_8px_#ef4444] animate-pulse'}`}></div>
+                {isUploading && <div className="w-1.5 h-1.5 bg-blue-500 rounded-full animate-ping"></div>}
             </div>
           </div>
           <div className="flex items-center gap-3">
               <button onClick={() => setIsNotificationsOpen(true)} className="relative p-2 text-2xl">🔔
                   {unreadMessagesCount > 0 && <span className="absolute top-0 right-0 bg-red-500 text-white text-[9px] font-bold px-1.5 py-0.5 rounded-full animate-bounce">{unreadMessagesCount}</span>}
               </button>
-              <div 
-                  onClick={() => setIsProfileOpen(true)} 
-                  className="flex items-center gap-2 bg-gray-50 hover:bg-gray-100 transition-colors py-1 pl-3 pr-1 rounded-full border border-gray-200 cursor-pointer"
-              >
-                  <span className="text-[10px] font-black uppercase text-gray-600 truncate max-w-[80px]">
-                      {currentUser.name.split(' ')[0]}
-                  </span>
+              <div onClick={() => setIsProfileOpen(true)} className="flex items-center gap-2 bg-gray-50 hover:bg-gray-100 transition-colors py-1 pl-3 pr-1 rounded-full border border-gray-200 cursor-pointer">
+                  <span className="text-[10px] font-black uppercase text-gray-600 truncate max-w-[80px]">{currentUser.name.split(' ')[0]}</span>
                   <div className="w-8 h-8 rounded-full border-2 border-padel overflow-hidden bg-white shrink-0">
-                      {currentUser.photoUrl ? (
-                          <img src={currentUser.photoUrl} className="w-full h-full object-cover" alt="" />
-                      ) : (
-                          <div className="w-full h-full flex items-center justify-center text-gray-300 text-xs">👤</div>
-                      )}
+                      {currentUser.photoUrl ? <img src={currentUser.photoUrl} className="w-full h-full object-cover" alt="" /> : <div className="w-full h-full flex items-center justify-center text-gray-300 text-xs">👤</div>}
                   </div>
               </div>
           </div>
