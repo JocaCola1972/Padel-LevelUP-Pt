@@ -49,27 +49,8 @@ export const RegistrationPanel: React.FC<RegistrationPanelProps> = ({ currentUse
       p.phone.includes(addPartnerSearchTerm))
   ).slice(0, 5);
 
-  const checkAutoOpen = (state: AppState) => {
-    if (state.registrationsOpen) return;
-    if (!state.autoOpenTime) return;
-
-    const now = new Date();
-    const day = now.getDay(); // 0 = Domingo
-    
-    if (day === 0) {
-      const [hours, minutes] = state.autoOpenTime.split(':').map(Number);
-      const openTime = new Date();
-      openTime.setHours(hours, minutes, 0, 0);
-
-      if (now >= openTime) {
-        updateAppState({ registrationsOpen: true });
-      }
-    }
-  };
-
   const loadData = () => {
     const currentState = getAppState();
-    checkAutoOpen(currentState);
     setAppState(currentState);
     
     const allRegs = getRegistrations();
@@ -86,7 +67,7 @@ export const RegistrationPanel: React.FC<RegistrationPanelProps> = ({ currentUse
   useEffect(() => {
     loadData();
     const unsubscribe = subscribeToChanges(loadData);
-    // Polling redundante removido. O checkAutoOpen será executado no loadData despoletado pelo Realtime ou carga inicial.
+    // Polling redundante removido. O loadData será executado no loadData despoletado pelo Realtime ou carga inicial.
     return () => {
         unsubscribe();
     };
@@ -366,11 +347,11 @@ export const RegistrationPanel: React.FC<RegistrationPanelProps> = ({ currentUse
                   </h2>
                   <div className="bg-blue-50 p-4 rounded-xl border border-blue-100 mb-6">
                       <p className="text-sm text-blue-800 font-bold leading-relaxed">
-                          As inscrições para o próximo evento abrem automaticamente todos os Domingos às <span className="text-padel-dark text-lg font-black">{appState.autoOpenTime || '15:00'}h</span>.
+                          As inscrições estão fechadas de momento. Por favor aguarde que a organização as abra.
                       </p>
                   </div>
                   <p className="text-xs text-gray-500 italic">
-                      Excecionalmente, a organização poderá abrir as inscrições noutra hora definida. Fica atento às notificações!
+                      Fica atento às notificações para saber quando as inscrições abrem!
                   </p>
               </div>
 

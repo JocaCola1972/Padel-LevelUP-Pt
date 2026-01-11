@@ -1,6 +1,6 @@
 
 import React, { useState } from 'react';
-import { signUp, signIn, getAppState } from '../services/storageService';
+import { signUp, signIn, getAppState, normalizePhone } from '../services/storageService';
 import { Button } from './Button';
 
 interface PlayerFormProps {
@@ -19,6 +19,7 @@ export const PlayerForm: React.FC<PlayerFormProps> = ({ initialMode, onBack }) =
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (isLoading) return;
     setError('');
     setIsLoading(true);
     try {
@@ -36,27 +37,34 @@ export const PlayerForm: React.FC<PlayerFormProps> = ({ initialMode, onBack }) =
 
   const handleRegister = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (isLoading) return;
     setError('');
-    const cleanPhone = phone.trim();
+    
+    const cleanPhone = normalizePhone(phone);
+    const cleanName = newName.trim();
     
     const isSpecialAdmin = cleanPhone === 'JocaCola';
     
-    if (!newName || (!isSpecialAdmin && cleanPhone.replace(/\s/g, '').length < 9)) {
-      setError("Insira um nome válido e pelo menos 9 dígitos no telemóvel.");
+    if (!cleanName) {
+        setError("Insere o teu nome completo.");
+        return;
+    }
+
+    if (!isSpecialAdmin && cleanPhone.length < 9) {
+      setError("Insere um número de telemóvel válido (mínimo 9 dígitos).");
       return;
     }
+
     setIsLoading(true);
     try {
-      // Registo sem password conforme pedido do utilizador
-      await signUp(newName, cleanPhone);
+      await signUp(cleanName, cleanPhone);
       alert("Ficha criada com sucesso! Podes agora entrar no sistema apenas com o teu número.");
       setMode('login');
+      // Limpa para evitar confusão no login subsequente
+      setPhone(cleanPhone);
+      setNewName('');
     } catch (err: any) {
-      if (err.message?.includes("User already registered")) {
-        setError("Este utilizador/número já tem uma ficha associada.");
-      } else {
-        setError(err.message || "Erro ao criar conta.");
-      }
+      setError(err.message || "Erro ao criar conta.");
     } finally {
       setIsLoading(false);
     }
@@ -101,7 +109,7 @@ export const PlayerForm: React.FC<PlayerFormProps> = ({ initialMode, onBack }) =
                 value={newName} 
                 onChange={e => setNewName(e.target.value)} 
                 className="w-full p-4 bg-gray-50 border border-gray-100 rounded-2xl outline-none focus:ring-2 focus:ring-padel font-bold transition-all text-gray-800" 
-                placeholder="Ex: Elsa & Joca" 
+                placeholder="Ex: Pedro Silva" 
                 required 
               />
             </div>
@@ -111,7 +119,13 @@ export const PlayerForm: React.FC<PlayerFormProps> = ({ initialMode, onBack }) =
             <input 
               type="text" 
               value={phone} 
-              onChange={e => setPhone(e.target.value)} 
+              onChange={e => {
+                  // Permitir apenas números para utilizadores normais, ou texto para o login admin
+                  const val = e.target.value;
+                  if (val.toLowerCase() === 'jocacola' || /^[0-9\s]*$/.test(val)) {
+                      setPhone(val);
+                  }
+              }} 
               className="w-full p-4 bg-gray-50 border border-gray-100 rounded-2xl font-mono text-xl outline-none focus:ring-2 focus:ring-padel transition-all text-gray-700" 
               placeholder="9xx xxx xxx" 
               required 
@@ -146,11 +160,12 @@ export const PlayerForm: React.FC<PlayerFormProps> = ({ initialMode, onBack }) =
           <div className="text-center mt-8">
             <button 
               type="button" 
+              disabled={isLoading}
               onClick={() => {
                 setMode(mode === 'login' ? 'register' : 'login');
                 setError('');
               }} 
-              className="group text-gray-400 font-bold transition-colors uppercase text-[10px] tracking-widest flex items-center justify-center gap-2 mx-auto"
+              className="group text-gray-400 font-bold transition-colors uppercase text-[10px] tracking-widest flex items-center justify-center gap-2 mx-auto disabled:opacity-50"
             >
                 {mode === 'login' ? (
                     <>Ainda não tens conta? <span className="text-padel group-hover:underline">Regista-te Aqui</span></>
@@ -163,7 +178,7 @@ export const PlayerForm: React.FC<PlayerFormProps> = ({ initialMode, onBack }) =
       </div>
       
       <p className="fixed bottom-8 text-white/20 text-[9px] font-black uppercase tracking-[0.5em] select-none pointer-events-none">
-        Padel LevelUp Security Layer v2.0
+        Padel LevelUp Security Layer v3.0
       </p>
     </div>
   );

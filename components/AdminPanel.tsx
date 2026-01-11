@@ -102,11 +102,6 @@ export const AdminPanel: React.FC = () => {
     }
   };
 
-  const updateAutoOpenTime = async (time: string) => {
-    await updateAppState({ autoOpenTime: time });
-    showMessageTemporarily();
-  };
-
   const updateCourtConfig = async (shift: Shift, type: 'game' | 'training', value: number) => {
     const safeValue = Math.max(0, Math.min(15, value));
     const newConfig = {
@@ -386,26 +381,6 @@ export const AdminPanel: React.FC = () => {
                                     >
                                         {isLoading ? 'A gravar...' : state.registrationsOpen ? 'Fechar Inscrições' : 'Abrir Inscrições'}
                                     </button>
-                                </div>
-                            </div>
-                            
-                            <div className="pt-4 border-t border-gray-200">
-                                <h3 className="font-bold text-gray-700 text-sm mb-2">Agendamento de Abertura</h3>
-                                <div className="flex flex-col md:flex-row md:items-center gap-4">
-                                    <div className="flex-1">
-                                        <label className="block text-xs font-bold text-gray-400 uppercase mb-1">Hora de Abertura Automática (Domingos)</label>
-                                        <input 
-                                            type="time" 
-                                            value={state.autoOpenTime || ''}
-                                            onChange={(e) => updateAutoOpenTime(e.target.value)}
-                                            className="w-full p-2 border border-gray-300 rounded-lg outline-none focus:ring-2 focus:ring-padel font-mono text-lg"
-                                        />
-                                    </div>
-                                    <div className="md:w-1/2 p-3 bg-blue-50 rounded-lg border border-blue-100">
-                                        <p className="text-[10px] text-blue-800 leading-tight">
-                                            Se definida, as inscrições abrirão automaticamente na hora configurada.
-                                        </p>
-                                    </div>
                                 </div>
                             </div>
                         </div>
@@ -871,7 +846,7 @@ export const AdminPanel: React.FC = () => {
       )}
 
       {editRegId && (
-          <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4 animate-fade-in">
+          <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4 animate-fade-in backdrop-blur-sm">
               <div className="bg-white rounded-xl shadow-2xl p-6 w-full max-w-sm">
                   <h3 className="text-xl font-bold mb-4">Associar Parceiro (Admin)</h3>
                   <div className="mb-4">

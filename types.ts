@@ -85,7 +85,6 @@ export interface AppState {
   passwordResetRequests: PasswordResetRequest[];
   adminSectionOrder?: string[];
   toolsSectionOrder?: string[];
-  autoOpenTime?: string;
   dailyTip?: string;          // Dica partilhada por todos
   dailyTipDate?: string;      // Data da última atualização da dica
 }

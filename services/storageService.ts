@@ -23,6 +23,15 @@ let isSyncing = false;
 type DataChangeListener = () => void;
 const listeners: DataChangeListener[] = [];
 
+// Função auxiliar para garantir que o telemóvel é guardado sempre no mesmo formato
+export const normalizePhone = (phone: string): string => {
+    if (!phone) return "";
+    // Se for o login especial de admin, mantém
+    if (phone.toLowerCase() === 'jocacola') return 'JocaCola';
+    // Remove espaços, parênteses, traços e espaços em branco
+    return phone.replace(/[^0-9]/g, "").trim();
+};
+
 export const getSupabase = () => {
     if (!supabase) {
         supabase = createClient(SUPABASE_URL, SUPABASE_KEY, {
@@ -63,7 +72,7 @@ export const fetchAllData = async () => {
         const thirtyDaysAgoStr = thirtyDaysAgo.toISOString().split('T')[0];
 
         const [p, r, m, msg, config, settings] = await Promise.all([
-            client.from('players').select('*').order('participantNumber', { ascending: true }).limit(200),
+            client.from('players').select('*').order('participantNumber', { ascending: true }).limit(500),
             client.from('registrations').select('*'),
             client.from('matches').select('*').gte('date', thirtyDaysAgoStr).order('timestamp', { ascending: false }),
             client.from('messages').select('*').order('timestamp', { ascending: false }).limit(50),
@@ -80,7 +89,6 @@ export const fetchAllData = async () => {
             const stateFromDb: AppState = {
                 registrationsOpen: config.data.registrations_open,
                 nextSundayDate: config.data.next_sunday_date,
-                autoOpenTime: config.data.auto_open_time,
                 isTournamentFinished: config.data.is_tournament_finished,
                 customLogo: config.data.custom_logo,
                 loginBackground: config.data.login_background,
@@ -129,7 +137,6 @@ const handleRealtimeUpdate = (payload: any) => {
                 ...currentLocal,
                 registrationsOpen: newRecord.registrations_open ?? currentLocal.registrationsOpen,
                 nextSundayDate: newRecord.next_sunday_date ?? currentLocal.nextSundayDate,
-                autoOpenTime: newRecord.auto_open_time ?? currentLocal.autoOpenTime,
                 isTournamentFinished: newRecord.is_tournament_finished ?? currentLocal.isTournamentFinished,
                 customLogo: newRecord.custom_logo ?? currentLocal.customLogo,
                 loginBackground: newRecord.login_background ?? currentLocal.loginBackground,
@@ -174,18 +181,29 @@ const handleRealtimeUpdate = (payload: any) => {
 
 export const signUp = async (name: string, phone: string, password?: string) => {
     const client = getSupabase();
-    const { data: existing } = await client.from('players').select('id').eq('phone', phone).maybeSingle();
-    if (existing) throw new Error("User already registered");
+    const cleanPhone = normalizePhone(phone);
+    const cleanName = name.trim();
+
+    if (!cleanPhone) throw new Error("Número de telemóvel inválido.");
+
+    // Verificação rigorosa na Base de Dados antes de qualquer inserção
+    const { data: existing } = await client.from('players').select('id').eq('phone', cleanPhone).maybeSingle();
+    if (existing) throw new Error("Este número já está registado. Tenta fazer Login.");
+
     const { count } = await client.from('players').select('*', { count: 'exact', head: true });
     const nextId = (count || 0) + 1;
-    const isSuperAdmin = phone === 'JocaCola';
+    const isSuperAdmin = cleanPhone === 'JocaCola';
+
     const newPlayer: Player = {
         id: generateUUID(),
-        name, phone, password: password || '',
+        name: cleanName, 
+        phone: cleanPhone, 
+        password: password || '',
         participantNumber: nextId, totalPoints: 0, gamesPlayed: 0,
         isApproved: isSuperAdmin, 
         role: isSuperAdmin ? 'super_admin' : 'user'
     };
+
     const { error } = await client.from('players').insert(newPlayer);
     if (error) throw error;
     return newPlayer;
@@ -193,15 +211,24 @@ export const signUp = async (name: string, phone: string, password?: string) => 
 
 export const signIn = async (phone: string, password?: string) => {
     const client = getSupabase();
-    const { data: user, error } = await client.from('players').select('*').eq('phone', phone).maybeSingle();
+    const cleanPhone = normalizePhone(phone);
+
+    const { data: user, error } = await client.from('players').select('*').eq('phone', cleanPhone).maybeSingle();
+    
     if (error) throw error;
-    if (!user) throw new Error("Invalid login credentials");
-    if (user.password && user.password !== '' && user.password !== (password || '')) throw new Error("Invalid login credentials");
-    if (phone === 'JocaCola' && user.role !== 'super_admin') {
+    if (!user) throw new Error("Utilizador não encontrado. Verifica o número.");
+    
+    if (user.password && user.password !== '' && user.password !== (password || '')) {
+        throw new Error("Password incorreta.");
+    }
+
+    // Auto-update SuperAdmin se necessário
+    if (cleanPhone === 'JocaCola' && user.role !== 'super_admin') {
         await client.from('players').update({ role: 'super_admin', isApproved: true }).eq('id', user.id);
         user.role = 'super_admin';
         user.isApproved = true;
     }
+
     localStorage.setItem(KEYS.SESSION, JSON.stringify(user));
     notifyListeners();
     return user;
@@ -244,13 +271,20 @@ export const getPlayers = (): Player[] => JSON.parse(localStorage.getItem(KEYS.P
 export const savePlayer = async (player: Player): Promise<void> => {
     const client = getSupabase();
     const players = getPlayers();
+    
+    // Normalização no save individual
+    player.phone = normalizePhone(player.phone);
+    player.name = player.name.trim();
+
     const idx = players.findIndex(p => p.id === player.id);
     if (idx >= 0) players[idx] = { ...players[idx], ...player };
     else players.push(player);
+    
     localStorage.setItem(KEYS.PLAYERS, JSON.stringify(players));
     const current = getCurrentUser();
     if (current && current.id === player.id) localStorage.setItem(KEYS.SESSION, JSON.stringify(player));
     notifyListeners();
+
     const { id, name, phone, password, totalPoints, gamesPlayed, participantNumber, role, photoUrl, isApproved, lastActive } = player;
     await client.from('players').upsert({ id, name, phone, password, totalPoints, gamesPlayed, participantNumber, role, photoUrl, isApproved, lastActive });
 };
@@ -258,7 +292,10 @@ export const savePlayer = async (player: Player): Promise<void> => {
 export const savePlayersBulk = async (players: Player[]): Promise<void> => {
     const client = getSupabase();
     const payload = players.map(p => ({
-        id: p.id, name: p.name, phone: p.phone, password: p.password,
+        id: p.id, 
+        name: p.name.trim(), 
+        phone: normalizePhone(p.phone), 
+        password: p.password,
         totalPoints: p.totalPoints, gamesPlayed: p.gamesPlayed, participantNumber: p.participantNumber,
         role: p.role, photoUrl: p.photoUrl, isApproved: p.isApproved, lastActive: p.lastActive
     }));
@@ -340,7 +377,6 @@ export const updateAppState = async (updates: Partial<AppState>): Promise<void> 
     const dbUpdates: any = {};
     if (updates.registrationsOpen !== undefined) dbUpdates.registrations_open = updates.registrationsOpen;
     if (updates.nextSundayDate !== undefined) dbUpdates.next_sunday_date = updates.nextSundayDate;
-    if (updates.autoOpenTime !== undefined) dbUpdates.auto_open_time = updates.autoOpenTime;
     if (updates.isTournamentFinished !== undefined) dbUpdates.is_tournament_finished = updates.isTournamentFinished;
     if (updates.customLogo !== undefined) dbUpdates.custom_logo = updates.customLogo;
     if (updates.loginBackground !== undefined) dbUpdates.login_background = updates.loginBackground;
