@@ -79,13 +79,15 @@ export interface AppState {
   nextSundayDate: string;
   gamesPerShift: Record<Shift, number>;
   customLogo?: string;
-  loginBackground?: string; // Novo campo
-  faviconUrl?: string;      // Novo campo
+  loginBackground?: string;
+  faviconUrl?: string;
   isTournamentFinished?: boolean;
   passwordResetRequests: PasswordResetRequest[];
   adminSectionOrder?: string[];
   toolsSectionOrder?: string[];
   autoOpenTime?: string;
+  dailyTip?: string;          // Dica partilhada por todos
+  dailyTipDate?: string;      // Data da última atualização da dica
 }
 
 export interface MastersTeam {

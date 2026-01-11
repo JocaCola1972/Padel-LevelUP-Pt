@@ -1,5 +1,5 @@
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { Player } from './types';
 import { PlayerForm } from './components/PlayerForm';
 import { RegistrationPanel } from './components/RegistrationPanel';
@@ -14,7 +14,7 @@ import { MastersLup } from './components/MastersLup';
 import { NotificationModal } from './components/NotificationModal';
 import { LevelUpInfo } from './components/LevelUpInfo';
 import { ToolsPanel } from './components/ToolsPanel';
-import { generateTacticalTip } from './services/geminiService';
+import { getOrGenerateGlobalTip } from './services/geminiService';
 import { getAppState, getUnreadCount, initCloudSync, isSupabaseConnected, subscribeToChanges, getPlayers, updatePresence, getIsSyncing, fetchAllData, signOut, getCurrentUser } from './services/storageService';
 
 enum Tab { LEVELUP = 'levelup', REGISTRATION = 'registrations', INSCRITOS = 'inscritos', MATCHES = 'matches', RANKING = 'ranking', MEMBERS = 'members', MASTERS = 'masters', ADMIN = 'admin', TOOLS = 'tools' }
@@ -25,25 +25,21 @@ const App: React.FC = () => {
   const [viewState, setViewState] = useState<ViewState>(getCurrentUser() ? ViewState.APP : ViewState.LANDING);
   const [authMode, setAuthMode] = useState<'login' | 'register'>('login');
   const [activeTab, setActiveTab] = useState<Tab>(Tab.LEVELUP);
-  const [tip, setTip] = useState<string>('');
-  const [isProfileOpen, setIsProfileOpen] = useState(false);
-  const [isNotificationsOpen, setIsNotificationsOpen] = useState(false);
-  const [unreadMessagesCount, setUnreadMessagesCount] = useState(0);
   const [isConnected, setIsConnected] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
+  const [unreadMessagesCount, setUnreadMessagesCount] = useState(0);
+  const [isProfileOpen, setIsProfileOpen] = useState(false);
+  const [isNotificationsOpen, setIsNotificationsOpen] = useState(false);
+  const lastFetchRef = useRef<number>(Date.now());
 
   const refreshState = useCallback(() => {
       setIsConnected(isSupabaseConnected());
       setIsUploading(getIsSyncing());
-      
       const state = getAppState();
-      
-      // Favicon dynamic update
       if (state.faviconUrl) {
           const link = document.getElementById('favicon') as HTMLLinkElement;
           if (link) link.href = state.faviconUrl;
       }
-
       const freshUser = getCurrentUser();
       if (freshUser) {
           if (freshUser.isApproved === false && currentUser) {
@@ -62,22 +58,28 @@ const App: React.FC = () => {
 
   useEffect(() => {
     initCloudSync();
-    generateTacticalTip().then(setTip);
+    
+    // Tenta obter/gerar a dica diária partilhada (reduz quota e é egress-friendly)
+    getOrGenerateGlobalTip();
+
     const unsubscribe = subscribeToChanges(refreshState);
     
     const handleVisibilityChange = () => {
-        if (document.visibilityState === 'visible') fetchAllData().then(refreshState);
+        // Redução de Egress: Só re-descarrega se tiver passado mais de 10 minutos ou se o Realtime cair
+        const now = Date.now();
+        if (document.visibilityState === 'visible' && (now - lastFetchRef.current > 600000 || !isSupabaseConnected())) {
+            lastFetchRef.current = now;
+            fetchAllData().then(refreshState);
+        }
     };
     window.addEventListener('visibilitychange', handleVisibilityChange);
 
-    // Initial check
     refreshState();
-
     return () => { 
         unsubscribe();
         window.removeEventListener('visibilitychange', handleVisibilityChange);
     };
-  }, [refreshState]);
+  }, []);
 
   useEffect(() => {
       if (!currentUser) return;
@@ -96,6 +98,7 @@ const App: React.FC = () => {
   if (!currentUser) return null;
 
   const isAdmin = currentUser.role === 'admin' || currentUser.role === 'super_admin';
+  const state = getAppState();
 
   return (
     <div className="min-h-screen pb-24">
@@ -123,7 +126,7 @@ const App: React.FC = () => {
       </header>
 
       <main className="max-w-md mx-auto p-4 space-y-4">
-        {tip && <div className="bg-white/80 p-3 rounded-lg border-l-4 border-yellow-400 text-xs italic text-gray-700 shadow-sm">💡 Coach: "{tip}"</div>}
+        {state.dailyTip && <div className="bg-white/80 p-3 rounded-lg border-l-4 border-yellow-400 text-xs italic text-gray-700 shadow-sm animate-fade-in">💡 Coach: "{state.dailyTip}"</div>}
         {activeTab === Tab.LEVELUP && <LevelUpInfo />}
         {activeTab === Tab.REGISTRATION && <RegistrationPanel currentUser={currentUser} />}
         {activeTab === Tab.INSCRITOS && <InscritosList />}

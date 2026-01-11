@@ -1,63 +1,93 @@
 
 import { GoogleGenAI } from "@google/genai";
 import { Player } from "../types";
+import { getAppState, updateAppState } from "./storageService";
+
+const CACHE_KEYS = {
+  RANKING: 'padel_gemini_ranking',
+  RANKING_HASH: 'padel_gemini_ranking_hash'
+};
+
+const FALLBACK_TIPS = [
+  "No Padel, a paciência ganha jogos. Espera pela bola certa para atacar!",
+  "Mantém o teu parceiro sempre informado sobre a posição dos adversários.",
+  "O vidro é o teu melhor amigo. Aprende a usá-lo para ganhar tempo.",
+  "Tenta jogar mais bolas pelo centro para criar confusão na dupla adversária.",
+  "Dobrar os joelhos é o segredo para uma defesa sólida no fundo do campo.",
+  "A comunicação é 50% da vitória. Fala com o teu parceiro em cada ponto.",
+  "Mantém a raquete sempre alta e pronta na rede para o voleio."
+];
 
 const getClient = () => {
   const apiKey = process.env.API_KEY;
-  if (!apiKey) {
-    console.error("API Key not found");
-    return null;
-  }
+  if (!apiKey) return null;
   return new GoogleGenAI({ apiKey });
 };
 
 export const generateRankingAnalysis = async (topPlayers: Player[]): Promise<string> => {
+  const currentHash = topPlayers.map(p => `${p.id}-${p.totalPoints}`).join('|');
+  const cachedHash = localStorage.getItem(CACHE_KEYS.RANKING_HASH);
+  const cachedAnalysis = localStorage.getItem(CACHE_KEYS.RANKING);
+
+  if (currentHash === cachedHash && cachedAnalysis) return cachedAnalysis;
+
   const ai = getClient();
-  if (!ai) return "Erro de configuração de API.";
+  const fallback = `Grande performance do top 5! O ${topPlayers[0]?.name || 'líder'} está imparável. Continuem a lutar! 🔥🏆`;
 
-  const playersData = topPlayers.map((p, i) => 
-    `${i + 1}. ${p.name} (${p.totalPoints} pontos, ${p.gamesPlayed} jogos)`
-  ).join('\n');
-
-  const prompt = `
-    És um comentador desportivo entusiasta de Padel. 
-    Analisa o seguinte top 5 de jogadores da liga "Sobe e Desce":
-    ${playersData}
-
-    Escreve um pequeno parágrafo divertido (máximo 100 palavras) em Português sobre o desempenho deles. 
-    Elogia o primeiro lugar e dá uma dica motivacional aos outros. 
-    Usa emojis de padel, fogo e troféus.
-  `;
+  if (!ai) return fallback;
 
   try {
-    // Corrected model to 'gemini-3-flash-preview' for basic text tasks
     const response = await ai.models.generateContent({
       model: 'gemini-3-flash-preview',
-      contents: prompt,
+      contents: `Analisa este top 5 de Padel: ${topPlayers.map((p, i) => `${i + 1}. ${p.name} (${p.totalPoints} pts)`).join('\n')}. Escreve um parágrafo divertido (max 80 palavras) em PT-PT.`,
     });
-    // Accessing .text property directly as per instructions
-    return response.text || "Não foi possível gerar a análise.";
+    
+    const text = response.text || fallback;
+    localStorage.setItem(CACHE_KEYS.RANKING, text);
+    localStorage.setItem(CACHE_KEYS.RANKING_HASH, currentHash);
+    return text;
   } catch (error) {
-    console.error("Error generating analysis:", error);
-    return "O comentador virtual está a beber água. Tente mais tarde.";
+    return fallback;
   }
 };
 
-export const generateTacticalTip = async (): Promise<string> => {
-    const ai = getClient();
-    if (!ai) return "Dica indisponível.";
+/**
+ * Retorna a dica do dia. Se a dica na DB tiver mais de 24h, tenta gerar uma nova
+ * e atualiza a DB para que todos os utilizadores vejam a mesma dica sem gastar quota extra.
+ */
+export const getOrGenerateGlobalTip = async (): Promise<string> => {
+    const state = getAppState();
+    const now = new Date();
+    const todayStr = now.toISOString().split('T')[0];
 
-    const prompt = "Dá-me uma dica tática curta e avançada para Padel (máximo 1 frase) em Português.";
+    // Se já temos uma dica de hoje na DB, usamos essa
+    if (state.dailyTip && state.dailyTipDate === todayStr) {
+        return state.dailyTip;
+    }
+
+    // Se expirou ou não existe, tentamos gerar uma nova (apenas 1 utilizador fará isto por dia)
+    const ai = getClient();
+    const randomFallback = FALLBACK_TIPS[Math.floor(Math.random() * FALLBACK_TIPS.length)];
+
+    if (!ai) return state.dailyTip || randomFallback;
 
     try {
-        // Corrected model to 'gemini-3-flash-preview' for basic text tasks
         const response = await ai.models.generateContent({
             model: 'gemini-3-flash-preview',
-            contents: prompt,
+            contents: "Dá uma dica tática curta e avançada para Padel (máximo 1 frase) em Português de Portugal.",
         });
-        // Accessing .text property directly as per instructions
-        return response.text || "Mantenha os olhos na bola!";
+        
+        const newTip = response.text?.trim() || randomFallback;
+        
+        // Atualiza na base de dados global para todos os utilizadores
+        await updateAppState({
+            dailyTip: newTip,
+            dailyTipDate: todayStr
+        });
+        
+        return newTip;
     } catch (error) {
-        return "Concentre-se no jogo!";
+        console.warn("Gemini API Quota/Error. Using fallback.");
+        return state.dailyTip || randomFallback;
     }
 }

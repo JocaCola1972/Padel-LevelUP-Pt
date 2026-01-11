@@ -9,7 +9,7 @@ const KEYS = {
   STATE: 'padel_state',
   MASTERS: 'padel_masters',
   MESSAGES: 'padel_messages',
-  SESSION: 'padel_user_session' // Nova chave para sessão manual
+  SESSION: 'padel_user_session'
 };
 
 const SUPABASE_URL = "https://bjiyrvayymwojubafray.supabase.co";
@@ -26,7 +26,7 @@ const listeners: DataChangeListener[] = [];
 export const getSupabase = () => {
     if (!supabase) {
         supabase = createClient(SUPABASE_URL, SUPABASE_KEY, {
-            auth: { persistSession: false }, // Desativamos o persistSession nativo
+            auth: { persistSession: false },
         });
     }
     return supabase;
@@ -89,7 +89,9 @@ export const fetchAllData = async () => {
                 gamesPerShift: config.data.games_per_shift,
                 passwordResetRequests: config.data.password_reset_requests || [],
                 adminSectionOrder: config.data.admin_section_order,
-                toolsSectionOrder: config.data.tools_section_order
+                toolsSectionOrder: config.data.tools_section_order,
+                dailyTip: config.data.daily_tip,
+                dailyTipDate: config.data.daily_tip_date
             };
             localStorage.setItem(KEYS.STATE, JSON.stringify(stateFromDb));
         }
@@ -137,6 +139,8 @@ const handleRealtimeUpdate = (payload: any) => {
                 passwordResetRequests: newRecord.password_reset_requests ?? currentLocal.passwordResetRequests,
                 adminSectionOrder: newRecord.admin_section_order ?? currentLocal.adminSectionOrder,
                 toolsSectionOrder: newRecord.tools_section_order ?? currentLocal.toolsSectionOrder,
+                dailyTip: newRecord.daily_tip ?? currentLocal.dailyTip,
+                dailyTipDate: newRecord.daily_tip_date ?? currentLocal.dailyTipDate,
             };
             localStorage.setItem(KEYS.STATE, JSON.stringify(updatedState));
         }
@@ -168,63 +172,36 @@ const handleRealtimeUpdate = (payload: any) => {
     notifyListeners();
 };
 
-// --- AUTH LOGIC (MANUAL TABLE-BASED) ---
-
 export const signUp = async (name: string, phone: string, password?: string) => {
     const client = getSupabase();
-    
     const { data: existing } = await client.from('players').select('id').eq('phone', phone).maybeSingle();
     if (existing) throw new Error("User already registered");
-
     const { count } = await client.from('players').select('*', { count: 'exact', head: true });
     const nextId = (count || 0) + 1;
-    
     const isSuperAdmin = phone === 'JocaCola';
-
     const newPlayer: Player = {
         id: generateUUID(),
-        name,
-        phone,
-        password: password || '', // Password agora é opcional no registo
-        participantNumber: nextId,
-        totalPoints: 0,
-        gamesPlayed: 0,
+        name, phone, password: password || '',
+        participantNumber: nextId, totalPoints: 0, gamesPlayed: 0,
         isApproved: isSuperAdmin, 
         role: isSuperAdmin ? 'super_admin' : 'user'
     };
-
     const { error } = await client.from('players').insert(newPlayer);
     if (error) throw error;
-
     return newPlayer;
 };
 
 export const signIn = async (phone: string, password?: string) => {
     const client = getSupabase();
-    
-    const { data: user, error } = await client.from('players')
-        .select('*')
-        .eq('phone', phone)
-        .maybeSingle();
-
+    const { data: user, error } = await client.from('players').select('*').eq('phone', phone).maybeSingle();
     if (error) throw error;
     if (!user) throw new Error("Invalid login credentials");
-    
-    // Se o utilizador tem password definida, exige verificação
-    if (user.password && user.password !== '') {
-        if (user.password !== (password || '')) {
-            throw new Error("Invalid login credentials");
-        }
-    } 
-    // Se não tem password, permite entrar (ou se a pass fornecida bater com a vazia)
-    // Nota: para utilizadores sem password, permitimos entrar com password vazia
-
+    if (user.password && user.password !== '' && user.password !== (password || '')) throw new Error("Invalid login credentials");
     if (phone === 'JocaCola' && user.role !== 'super_admin') {
         await client.from('players').update({ role: 'super_admin', isApproved: true }).eq('id', user.id);
         user.role = 'super_admin';
         user.isApproved = true;
     }
-
     localStorage.setItem(KEYS.SESSION, JSON.stringify(user));
     notifyListeners();
     return user;
@@ -240,20 +217,13 @@ export const signOut = async () => {
     notifyListeners();
 };
 
-// --- STORAGE & CRUD ---
-
 export const uploadAvatar = async (playerId: string, file: File): Promise<string> => {
     const client = getSupabase();
     const fileExt = file.name.split('.').pop();
     const fileName = `${playerId}-${Date.now()}.${fileExt}`;
     const filePath = `avatars/${fileName}`;
-
-    const { error: uploadError } = await client.storage
-        .from('avatars')
-        .upload(filePath, file);
-
+    const { error: uploadError } = await client.storage.from('avatars').upload(filePath, file);
     if (uploadError) throw uploadError;
-
     const { data } = client.storage.from('avatars').getPublicUrl(filePath);
     return data.publicUrl;
 };
@@ -263,13 +233,8 @@ export const uploadSiteAsset = async (file: File, namePrefix: string): Promise<s
     const fileExt = file.name.split('.').pop();
     const fileName = `${namePrefix}-${Date.now()}.${fileExt}`;
     const filePath = `assets/${fileName}`;
-
-    const { error: uploadError } = await client.storage
-        .from('avatars')
-        .upload(filePath, file);
-
+    const { error: uploadError } = await client.storage.from('avatars').upload(filePath, file);
     if (uploadError) throw uploadError;
-
     const { data } = client.storage.from('avatars').getPublicUrl(filePath);
     return data.publicUrl;
 };
@@ -283,12 +248,8 @@ export const savePlayer = async (player: Player): Promise<void> => {
     if (idx >= 0) players[idx] = { ...players[idx], ...player };
     else players.push(player);
     localStorage.setItem(KEYS.PLAYERS, JSON.stringify(players));
-    
     const current = getCurrentUser();
-    if (current && current.id === player.id) {
-        localStorage.setItem(KEYS.SESSION, JSON.stringify(player));
-    }
-    
+    if (current && current.id === player.id) localStorage.setItem(KEYS.SESSION, JSON.stringify(player));
     notifyListeners();
     const { id, name, phone, password, totalPoints, gamesPlayed, participantNumber, role, photoUrl, isApproved, lastActive } = player;
     await client.from('players').upsert({ id, name, phone, password, totalPoints, gamesPlayed, participantNumber, role, photoUrl, isApproved, lastActive });
@@ -297,17 +258,9 @@ export const savePlayer = async (player: Player): Promise<void> => {
 export const savePlayersBulk = async (players: Player[]): Promise<void> => {
     const client = getSupabase();
     const payload = players.map(p => ({
-        id: p.id, 
-        name: p.name, 
-        phone: p.phone, 
-        password: p.password,
-        totalPoints: p.totalPoints,
-        gamesPlayed: p.gamesPlayed, 
-        participantNumber: p.participantNumber,
-        role: p.role, 
-        photoUrl: p.photoUrl, 
-        isApproved: p.isApproved, 
-        lastActive: p.lastActive
+        id: p.id, name: p.name, phone: p.phone, password: p.password,
+        totalPoints: p.totalPoints, gamesPlayed: p.gamesPlayed, participantNumber: p.participantNumber,
+        role: p.role, photoUrl: p.photoUrl, isApproved: p.isApproved, lastActive: p.lastActive
     }));
     await client.from('players').upsert(payload);
     notifyListeners();
@@ -348,9 +301,7 @@ export const deleteMatchesByDate = async (date: string) => {
     const client = getSupabase();
     const { data: matchesToDelete } = await client.from('matches').select('*').eq('date', date);
     if (!matchesToDelete || matchesToDelete.length === 0) return;
-
     const players = getPlayers();
-    
     matchesToDelete.forEach((match: MatchRecord) => {
         const pts = match.result === GameResult.WIN ? 4 : (match.result === GameResult.DRAW ? 2 : 1);
         match.playerIds.forEach(pid => {
@@ -361,24 +312,16 @@ export const deleteMatchesByDate = async (date: string) => {
             }
         });
     });
-
     await Promise.all([
         client.from('matches').delete().eq('date', date),
         client.from('players').upsert(players.map(p => ({ 
-            id: p.id, 
-            totalPoints: p.totalPoints, 
-            gamesPlayed: p.gamesPlayed 
+            id: p.id, totalPoints: p.totalPoints, gamesPlayed: p.gamesPlayed 
         })))
     ]);
 };
 
 export const fetchMatchesByDate = async (date: string): Promise<MatchRecord[]> => {
-    const { data, error } = await getSupabase()
-        .from('matches')
-        .select('*')
-        .eq('date', date)
-        .order('timestamp', { ascending: false });
-    
+    const { data, error } = await getSupabase().from('matches').select('*').eq('date', date).order('timestamp', { ascending: false });
     if (error) throw error;
     return data || [];
 };
@@ -407,6 +350,8 @@ export const updateAppState = async (updates: Partial<AppState>): Promise<void> 
     if (updates.passwordResetRequests !== undefined) dbUpdates.password_reset_requests = updates.passwordResetRequests;
     if (updates.adminSectionOrder !== undefined) dbUpdates.admin_section_order = updates.adminSectionOrder;
     if (updates.toolsSectionOrder !== undefined) dbUpdates.tools_section_order = updates.toolsSectionOrder;
+    if (updates.dailyTip !== undefined) dbUpdates.daily_tip = updates.dailyTip;
+    if (updates.dailyTipDate !== undefined) dbUpdates.daily_tip_date = updates.dailyTipDate;
 
     await getSupabase().from('app_config').update(dbUpdates).eq('id', 1);
 };
@@ -482,16 +427,8 @@ export const getMastersState = (): MastersState => {
 };
 
 export const fetchPlayersBatch = async (offset: number, limit: number, search?: string): Promise<Player[]> => {
-    let query = getSupabase()
-        .from('players')
-        .select('*')
-        .order('participantNumber', { ascending: true })
-        .range(offset, offset + limit - 1);
-    
-    if (search) {
-        query = query.or(`name.ilike.%${search}%,phone.ilike.%${search}%`);
-    }
-    
+    let query = getSupabase().from('players').select('*').order('participantNumber', { ascending: true }).range(offset, offset + limit - 1);
+    if (search) query = query.or(`name.ilike.%${search}%,phone.ilike.%${search}%`);
     const { data, error } = await query;
     if (error) throw error;
     return data || [];
