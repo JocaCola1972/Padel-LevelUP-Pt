@@ -1,13 +1,13 @@
 
 import React, { useState, useEffect } from 'react';
 import { AppState, Player, Registration, Shift, MatchRecord, GameResult } from '../types';
-import { getAppState, updateAppState, getRegistrations, getPlayers, removeRegistration, updateRegistration, getMatches, subscribeToChanges, deleteMatchesByDate, deleteRegistrationsByDate, addRegistration, generateUUID, savePlayer } from '../services/storageService';
+import { getAppState, updateAppState, getRegistrations, getPlayers, removeRegistration, updateRegistration, getMatches, subscribeToChanges, deleteMatchesByDate, deleteRegistrationsByDate, addRegistration, generateUUID, approvePlayer, removePlayer } from '../services/storageService';
 import { Button } from './Button';
 
 // Declare XLSX for sheetjs
 declare const XLSX: any;
 
-const DEFAULT_ORDER = ['config', 'courts', 'report', 'registrations'];
+const DEFAULT_ORDER = ['approvals', 'config', 'courts', 'report', 'registrations'];
 
 export const AdminPanel: React.FC = () => {
   const [state, setState] = useState<AppState>(getAppState());
@@ -82,11 +82,8 @@ export const AdminPanel: React.FC = () => {
 
   useEffect(() => {
     loadData();
-    // Apenas subscrevemos mudanças. O setInterval foi removido para evitar reversões de UI.
     const unsubscribe = subscribeToChanges(loadData);
-    return () => {
-        unsubscribe();
-    };
+    return () => unsubscribe();
   }, []);
 
   const toggleRegistrations = async () => {
@@ -95,7 +92,6 @@ export const AdminPanel: React.FC = () => {
     try {
         const newValue = !state.registrationsOpen;
         await updateAppState({ registrationsOpen: newValue });
-        // O estado do componente atualizará via subscribeToChanges
         showMessageTemporarily();
     } finally {
         setIsLoading(false);
@@ -155,27 +151,6 @@ export const AdminPanel: React.FC = () => {
       setRegToDelete(null);
   };
 
-  const confirmRemovePartnerOnly = async () => {
-      if (!regToDelete) return;
-      await updateRegistration(regToDelete.reg.id, {
-          hasPartner: false,
-          partnerId: undefined,
-          partnerName: undefined
-      });
-      setRegToDelete(null);
-  };
-
-  const confirmRemoveMainPlayerKeepPartner = async () => {
-      if (!regToDelete || !regToDelete.reg.partnerId) return;
-      await updateRegistration(regToDelete.reg.id, {
-          playerId: regToDelete.reg.partnerId,
-          hasPartner: false,
-          partnerId: undefined,
-          partnerName: undefined
-      });
-      setRegToDelete(null);
-  };
-
   const handleExecuteResetResults = async () => {
       if (!reportFilterDate) return;
       await deleteMatchesByDate(reportFilterDate);
@@ -202,6 +177,18 @@ export const AdminPanel: React.FC = () => {
   const handleSetStartingCourt = async (regId: string, court: number) => {
       await updateRegistration(regId, { startingCourt: court });
       showMessageTemporarily();
+  };
+
+  const handleAdminApprove = async (pid: string) => {
+      await approvePlayer(pid);
+      showMessageTemporarily();
+  };
+
+  const handleAdminReject = async (pid: string) => {
+      if (confirm("Tens a certeza que desejas ELIMINAR este utilizador pendente? (Ação irreversível)")) {
+          await removePlayer(pid);
+          showMessageTemporarily();
+      }
   };
 
   const filteredRegistrations = registrations.filter(r => r.date === regFilterDate);
@@ -242,6 +229,18 @@ export const AdminPanel: React.FC = () => {
 
   const filteredMatches = matches.filter(m => m.date === reportFilterDate);
 
+  const exportToExcel = () => {
+      if (filteredMatches.length === 0) {
+          alert("Não existem dados de jogos para esta data.");
+          return;
+      }
+      const data = prepareExportData();
+      const ws = XLSX.utils.json_to_sheet(data);
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, ws, "Resultados");
+      XLSX.writeFile(wb, `PadelLevelUp_Resultados_${reportFilterDate}.xlsx`);
+  };
+
   const prepareExportData = () => {
       const dataToExport = filteredMatches.map(m => {
           const teamNames = m.playerIds.map(pid => getPlayerDetails(pid)?.name || 'Unknown').join(' & ');
@@ -261,18 +260,6 @@ export const AdminPanel: React.FC = () => {
           return a['Jogo Nº'] - b['Jogo Nº'];
       });
       return dataToExport;
-  };
-
-  const exportToExcel = () => {
-      if (filteredMatches.length === 0) {
-          alert("Não existem dados de jogos para esta data.");
-          return;
-      }
-      const data = prepareExportData();
-      const ws = XLSX.utils.json_to_sheet(data);
-      const wb = XLSX.utils.book_new();
-      XLSX.utils.book_append_sheet(wb, ws, "Resultados");
-      XLSX.writeFile(wb, `PadelLevelUp_Resultados_${reportFilterDate}.xlsx`);
   };
 
   const handleEndTournament = async () => {
@@ -334,21 +321,62 @@ export const AdminPanel: React.FC = () => {
                 disabled={isFirst}
                 className={`w-8 h-8 flex items-center justify-center rounded-lg border bg-white shadow-sm transition-all ${isFirst ? 'text-gray-200 cursor-not-allowed' : 'text-gray-500 hover:text-padel hover:border-padel'}`}
                 title="Mover para cima"
-              >
-                  ↑
-              </button>
+              >↑</button>
               <button 
                 onClick={() => moveSection(key, 'down')} 
                 disabled={isLast}
                 className={`w-8 h-8 flex items-center justify-center rounded-lg border bg-white shadow-sm transition-all ${isLast ? 'text-gray-200 cursor-not-allowed' : 'text-gray-500 hover:text-padel hover:border-padel'}`}
                 title="Mover para baixo"
-              >
-                  ↓
-              </button>
+              >↓</button>
           </div>
       );
 
       switch (key) {
+          case 'approvals':
+              const pending = players.filter(p => p.isApproved === false);
+              return (
+                <div key="approvals" className="bg-white p-6 rounded-xl shadow-lg border-t-4 border-orange-500 animate-fade-in">
+                    <div className="flex justify-between items-start mb-6">
+                        <div>
+                            <h2 className="text-2xl font-bold text-gray-800 flex items-center gap-2">
+                                🛡️ Aprovação de Utilizadores
+                            </h2>
+                            <p className="text-xs text-gray-400 mt-1 font-bold uppercase tracking-widest">Novos registos que aguardam acesso</p>
+                        </div>
+                        {controls}
+                    </div>
+                    <div className="space-y-3">
+                        {pending.length > 0 ? (
+                            pending.map(p => (
+                                <div key={p.id} className="p-4 bg-orange-50/50 border border-orange-100 rounded-xl flex items-center justify-between group hover:bg-orange-50 transition-colors">
+                                    <div className="flex flex-col">
+                                        <span className="font-black text-gray-800 tracking-tighter">{p.name}</span>
+                                        <span className="font-mono text-xs text-orange-700">{p.phone}</span>
+                                    </div>
+                                    <div className="flex gap-2">
+                                        <button 
+                                            onClick={() => handleAdminApprove(p.id)}
+                                            className="px-4 py-2 bg-green-500 text-white rounded-full text-xs font-black shadow-sm hover:bg-green-600 transition-all"
+                                        >
+                                            APROVAR
+                                        </button>
+                                        <button 
+                                            onClick={() => handleAdminReject(p.id)}
+                                            className="px-4 py-2 bg-red-100 text-red-600 rounded-full text-xs font-black hover:bg-red-200 transition-all"
+                                        >
+                                            ELIMINAR
+                                        </button>
+                                    </div>
+                                </div>
+                            ))
+                        ) : (
+                            <div className="text-center py-10 text-gray-400 italic bg-gray-50 rounded-xl border border-dashed border-gray-200">
+                                Nenhum utilizador aguarda aprovação.
+                            </div>
+                        )}
+                    </div>
+                </div>
+              );
           case 'config':
               return (
                 <div key="config" className="bg-white p-6 rounded-xl shadow-lg border-t-4 border-gray-800 animate-fade-in">
@@ -463,34 +491,6 @@ export const AdminPanel: React.FC = () => {
                                             </div>
                                             <div className="text-right text-sm">
                                                 Total: <span className="font-bold">{config.game + config.training}</span> campos
-                                            </div>
-                                        </div>
-                                    );
-                                })}
-                            </div>
-                        </div>
-                        <div className="p-4 bg-gray-50 rounded-lg">
-                            <h3 className="font-bold text-gray-700 mb-4 uppercase text-xs tracking-widest">Limite de Jogos por Jogador</h3>
-                            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                                {Object.values(Shift).map(shift => {
-                                    const currentLimit = state.gamesPerShift[shift] || 5;
-                                    return (
-                                        <div key={shift} className="bg-white p-3 rounded-lg border border-gray-200 shadow-sm">
-                                            <p className="text-xs font-bold text-gray-500 uppercase mb-2">{shift}</p>
-                                            <div className="flex flex-wrap gap-1">
-                                                {[3, 4, 5, 6, 7, 8].map(num => (
-                                                    <button
-                                                        key={num}
-                                                        onClick={() => updateGamesPerShift(shift, num)}
-                                                        className={`w-8 h-8 text-sm rounded font-bold transition-all ${
-                                                            currentLimit === num 
-                                                            ? 'bg-blue-600 text-white shadow-md' 
-                                                            : 'bg-gray-50 text-gray-600 hover:bg-gray-200'
-                                                        }`}
-                                                    >
-                                                        {num}
-                                                    </button>
-                                                ))}
                                             </div>
                                         </div>
                                     );
@@ -671,28 +671,6 @@ export const AdminPanel: React.FC = () => {
                                                             #{player?.participantNumber}
                                                         </span>
                                                     </div>
-                                                    
-                                                    <div className="flex items-center gap-3 mt-1">
-                                                        <div className="flex items-center gap-1 bg-gray-50 px-2 py-0.5 rounded border border-gray-100">
-                                                            <span className="text-[9px] font-bold text-gray-400 uppercase">Pts:</span>
-                                                            <span className="text-[10px] font-black text-blue-600">{p1Points}</span>
-                                                            {reg.hasPartner && <span className="text-gray-300 mx-0.5">+</span>}
-                                                            {reg.hasPartner && <span className="text-[10px] font-black text-gray-600">{p2Points}</span>}
-                                                        </div>
-                                                        {reg.hasPartner ? (
-                                                            <div className="flex items-center gap-1 bg-padel/10 px-2 py-0.5 rounded border border-padel/20">
-                                                                <span className="text-[9px] font-black text-padel-dark uppercase tracking-tight">Total:</span>
-                                                                <span className="text-[11px] font-black text-padel-dark">{totalPoints}</span>
-                                                            </div>
-                                                        ) : (
-                                                            <span className="text-[9px] text-gray-400 italic">Individual</span>
-                                                        )}
-                                                        {reg.type === 'training' && (
-                                                            <span className="text-[9px] bg-orange-100 text-orange-800 px-1.5 rounded uppercase font-bold tracking-wide">
-                                                                Treino
-                                                            </span>
-                                                        )}
-                                                    </div>
                                                 </div>
                                                 <div className="flex items-center gap-4">
                                                     {!reg.isWaitingList && reg.type === 'game' && courtOptions.length > 0 && (
@@ -709,15 +687,6 @@ export const AdminPanel: React.FC = () => {
                                                         </div>
                                                     )}
                                                     <div className="flex gap-1">
-                                                        {!reg.hasPartner && (
-                                                            <button 
-                                                                onClick={() => openPartnerModal(reg.id)}
-                                                                className="text-gray-400 hover:text-blue-600 p-2 rounded-full hover:bg-blue-100 transition-all border border-transparent hover:border-blue-200"
-                                                                title="Adicionar Parceiro"
-                                                            >
-                                                                ➕👤
-                                                            </button>
-                                                        )}
                                                         <button
                                                             onClick={() => initiateDeleteRegistration(reg, player?.name || 'Jogador')}
                                                             className="text-gray-400 hover:text-red-600 p-2 rounded-full hover:bg-red-100 transition-all border border-transparent hover:border-red-200"
@@ -734,11 +703,6 @@ export const AdminPanel: React.FC = () => {
                             </div>
                         );
                     })}
-                    {filteredRegistrations.length === 0 && (
-                        <div className="text-center py-8 text-gray-400 italic">
-                            Nenhuma inscrição encontrada para esta data ({regFilterDate}).
-                        </div>
-                    )}
                 </div>
               );
           default:
@@ -772,20 +736,7 @@ export const AdminPanel: React.FC = () => {
                           </select>
                       </div>
                       <div>
-                          <label className="block text-xs font-bold text-gray-500 mb-1">Atividade</label>
-                          <div className="flex gap-2">
-                              <button 
-                                onClick={() => setNewRegType('game')}
-                                className={`flex-1 py-2 rounded text-xs font-bold border transition-all ${newRegType === 'game' ? 'bg-padel text-white' : 'bg-gray-100'}`}
-                              >Jogos</button>
-                              <button 
-                                onClick={() => setNewRegType('training')}
-                                className={`flex-1 py-2 rounded text-xs font-bold border transition-all ${newRegType === 'training' ? 'bg-orange-500 text-white' : 'bg-gray-100'}`}
-                              >Treino</button>
-                          </div>
-                      </div>
-                      <div>
-                          <label className="block text-xs font-bold text-gray-500 mb-1">Jogador 1 (Responsável)</label>
+                          <label className="block text-xs font-bold text-gray-500 mb-1">Jogador 1</label>
                           <input 
                             type="text" 
                             placeholder="Pesquisar..." 
@@ -809,33 +760,6 @@ export const AdminPanel: React.FC = () => {
                               </div>
                           )}
                       </div>
-                      {newRegType === 'game' && (
-                          <div>
-                              <label className="block text-xs font-bold text-gray-500 mb-1">Jogador 2 (Parceiro - Opcional)</label>
-                              <input 
-                                type="text" 
-                                placeholder="Pesquisar..." 
-                                value={p2Search}
-                                onChange={(e) => setP2Search(e.target.value)}
-                                className="w-full p-2 border rounded text-sm mb-1"
-                              />
-                              {p2Search && !newRegP2 && (
-                                  <div className="border rounded bg-gray-50 max-h-32 overflow-y-auto">
-                                      {players.filter(p => p.id !== newRegP1?.id && p.name.toLowerCase().includes(p2Search.toLowerCase())).slice(0, 5).map(p => (
-                                          <div key={p.id} onClick={() => { setNewRegP2(p); setP2Search(p.name); }} className="p-2 text-sm hover:bg-blue-100 cursor-pointer">
-                                              {p.name} (#{p.participantNumber})
-                                          </div>
-                                      ))}
-                                  </div>
-                              )}
-                              {newRegP2 && (
-                                  <div className="bg-green-50 p-2 rounded border border-green-200 flex justify-between items-center">
-                                      <span className="text-sm font-bold">{newRegP2.name}</span>
-                                      <button onClick={() => { setNewRegP2(null); setP2Search(''); }} className="text-red-500">&times;</button>
-                                  </div>
-                              )}
-                          </div>
-                      )}
                   </div>
                   <div className="flex gap-2 mt-6">
                       <Button variant="ghost" onClick={() => setIsNewRegModalOpen(false)} className="flex-1">Cancelar</Button>
@@ -845,80 +769,20 @@ export const AdminPanel: React.FC = () => {
           </div>
       )}
 
-      {editRegId && (
-          <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4 animate-fade-in backdrop-blur-sm">
-              <div className="bg-white rounded-xl shadow-2xl p-6 w-full max-w-sm">
-                  <h3 className="text-xl font-bold mb-4">Associar Parceiro (Admin)</h3>
-                  <div className="mb-4">
-                      <label className="block text-xs font-bold text-gray-500 mb-1">Pesquisar Jogador</label>
-                      <input 
-                          type="text" 
-                          placeholder="Nome ou Telemóvel"
-                          value={partnerSearchTerm}
-                          onChange={(e) => setPartnerSearchTerm(e.target.value)}
-                          className="w-full p-2 border rounded"
-                      />
-                  </div>
-                  <div className="mb-4 max-h-40 overflow-y-auto space-y-2 border border-gray-100 p-2 rounded">
-                      {partnerSearchTerm && filteredPartnerCandidates.map(p => (
-                          <div 
-                            key={p.id} 
-                            onClick={() => setSelectedPartnerForReg(p)}
-                            className={`p-2 rounded cursor-pointer flex justify-between items-center text-sm ${selectedPartnerForReg?.id === p.id ? 'bg-padel-blue text-white' : 'hover:bg-gray-100'}`}
-                          >
-                              <span>{p.name}</span>
-                              <span className="text-xs opacity-70">{p.phone}</span>
-                          </div>
-                      ))}
-                  </div>
-                  <div className="flex gap-2">
-                      <Button variant="ghost" onClick={closePartnerModal} className="flex-1">Cancelar</Button>
-                      <Button onClick={handleAssociatePartner} disabled={!selectedPartnerForReg} className="flex-1">Associar</Button>
-                  </div>
-              </div>
-          </div>
-      )}
-
       {regToDelete && (
           <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4 animate-fade-in backdrop-blur-sm">
               <div className="bg-white rounded-xl shadow-2xl p-6 w-full max-w-sm border-t-4 border-red-500">
                   <div className="text-center mb-4">
-                      <div className="w-16 h-16 bg-red-100 rounded-full flex items-center justify-center mb-4 mx-auto text-3xl">
-                          🗑️
-                      </div>
+                      <div className="w-16 h-16 bg-red-100 rounded-full flex items-center justify-center mb-4 mx-auto text-3xl">🗑️</div>
                       <h3 className="text-lg font-bold text-gray-800">Remover Inscrição</h3>
                       <p className="text-sm font-semibold mt-2">{regToDelete.mainPlayerName}</p>
-                      {regToDelete.reg.hasPartner && (
-                          <p className="text-xs text-gray-500">+ {regToDelete.reg.partnerName}</p>
-                      )}
                   </div>
                   <div className="space-y-3">
-                      {regToDelete.reg.hasPartner && (
-                        <>
-                          <button
-                              onClick={confirmRemovePartnerOnly}
-                              className="w-full py-3 bg-blue-50 text-blue-800 rounded-lg font-bold text-xs hover:bg-blue-100 border border-blue-200"
-                          >
-                              Remover apenas: {regToDelete.reg.partnerName}
-                              <span className="block text-[8px] font-normal opacity-70">(Mantém {regToDelete.mainPlayerName} inscrito)</span>
-                          </button>
-                          <button
-                              onClick={confirmRemoveMainPlayerKeepPartner}
-                              className="w-full py-3 bg-blue-50 text-blue-800 rounded-lg font-bold text-xs hover:bg-blue-100 border border-blue-200"
-                          >
-                              Remover apenas: {regToDelete.mainPlayerName}
-                              <span className="block text-[8px] font-normal opacity-70">(Mantém {regToDelete.reg.partnerName} inscrito)</span>
-                          </button>
-                        </>
-                      )}
                       <button
                           onClick={confirmDeleteEntireRegistration}
                           className="w-full py-3 bg-red-500 text-white rounded-lg font-bold text-sm hover:bg-red-600 shadow-md"
                       >
-                          {regToDelete.reg.hasPartner ? 'Eliminar Inscrição Completa' : 'Eliminar Inscrição'}
-                          {regToDelete.reg.hasPartner && (
-                              <span className="block text-[10px] font-normal opacity-90">(Remove ambos os jogadores)</span>
-                          )}
+                          Confirmar Remoção
                       </button>
                       <button 
                           onClick={() => setRegToDelete(null)}
@@ -926,165 +790,6 @@ export const AdminPanel: React.FC = () => {
                       >
                           Cancelar
                       </button>
-                  </div>
-              </div>
-          </div>
-      )}
-
-      {showResetConfirm && (
-          <div className="fixed inset-0 bg-black/70 z-[100] flex items-center justify-center p-4 backdrop-blur-sm animate-fade-in">
-              <div className="bg-white rounded-2xl shadow-2xl w-full max-sm overflow-hidden border-t-8 border-red-600">
-                  <div className="p-6 text-center">
-                      <div className="w-16 h-16 bg-red-100 text-red-600 rounded-full flex items-center justify-center mx-auto mb-4 text-3xl">
-                          ⚠️
-                      </div>
-                      <h3 className="text-xl font-black text-red-600 mb-2 tracking-tight">Mensagem do LevelUP</h3>
-                      <div className="space-y-4">
-                        <p className="text-gray-800 font-bold leading-tight">
-                            Tens a certeza que desejas apagar todos os resultados do dia {reportFilterDate}?
-                        </p>
-                        <div className="text-xs text-gray-500 leading-relaxed space-y-2 p-3 bg-gray-50 rounded-lg text-left italic">
-                            <p>• Esta ação irá apagar todos os registos de jogos desta data.</p>
-                            <p>• Os pontos atribuídos aos jogadores serão revertidos automaticamente.</p>
-                            <p>• Esta ação não afeta as inscrições, apenas os resultados.</p>
-                        </div>
-                        <p className="text-xs font-black text-red-500 uppercase">Atenção: Esta ação é irreversível!</p>
-                      </div>
-                  </div>
-                  <div className="p-4 bg-gray-50 flex gap-3">
-                      <Button 
-                        variant="secondary"
-                        onClick={() => setShowResetConfirm(false)} 
-                        className="flex-1 py-3 font-bold"
-                      >
-                          Não, Cancelar
-                      </Button>
-                      <Button 
-                        onClick={handleExecuteResetResults} 
-                        className="flex-1 py-3 bg-red-600 hover:bg-red-700 font-black text-white"
-                      >
-                          Sim, Limpar
-                      </Button>
-                  </div>
-              </div>
-          </div>
-      )}
-      
-      {showRegResetConfirm && (
-          <div className="fixed inset-0 bg-black/70 z-[100] flex items-center justify-center p-4 backdrop-blur-sm animate-fade-in">
-              <div className="bg-white rounded-2xl shadow-2xl w-full max-sm overflow-hidden border-t-8 border-red-600">
-                  <div className="p-6 text-center">
-                      <div className="w-16 h-16 bg-red-100 text-red-600 rounded-full flex items-center justify-center mx-auto mb-4 text-3xl">
-                          ⚠️
-                      </div>
-                      <h3 className="text-xl font-black text-red-600 mb-2 tracking-tight">Mensagem do LevelUP</h3>
-                      <div className="space-y-4">
-                        <p className="text-gray-800 font-bold leading-tight">
-                            Tens a certeza que desejas apagar todas as INSCRIÇÕES do dia {regFilterDate}?
-                        </p>
-                        <div className="text-xs text-gray-500 leading-relaxed space-y-2 p-3 bg-gray-50 rounded-lg text-left italic">
-                            <p>• Esta ação irá apagar todos os registos de inscrição desta data.</p>
-                            <p>• Os turnos desta data ficarão totalmente vazios.</p>
-                            <p>• Esta ação NÃO afeta os resultados já registados, apenas as inscrições.</p>
-                        </div>
-                        <p className="text-xs font-black text-red-500 uppercase">Atenção: Esta ação é irreversível!</p>
-                      </div>
-                  </div>
-                  <div className="p-4 bg-gray-50 flex gap-3">
-                      <Button 
-                        variant="secondary"
-                        onClick={() => setShowRegResetConfirm(false)} 
-                        className="flex-1 py-3 font-bold"
-                      >
-                          Não, Cancelar
-                      </Button>
-                      <Button 
-                        onClick={handleExecuteResetRegistrations} 
-                        className="flex-1 py-3 bg-red-600 hover:bg-red-700 font-black text-white"
-                      >
-                          Sim, Limpar
-                      </Button>
-                  </div>
-              </div>
-          </div>
-      )}
-
-      {showEndTournament && (
-          <div className="fixed inset-0 bg-black/80 z-50 flex items-center justify-center p-4 animate-fade-in backdrop-blur-sm overflow-y-auto">
-              <div className="bg-white rounded-2xl shadow-2xl w-full max-w-5xl my-8 flex flex-col max-h-[90vh]">
-                  <div className="p-6 border-b border-gray-200 flex justify-between items-center bg-gray-50 rounded-t-2xl">
-                      <div>
-                          <h2 className="text-2xl font-black text-gray-800">🏆 Resumo Final do Torneio</h2>
-                          <p className="text-sm text-gray-500 font-mono mt-1">Data: {reportFilterDate}</p>
-                      </div>
-                      <button onClick={() => setShowEndTournament(false)} className="text-gray-400 hover:text-gray-600 text-3xl font-bold leading-none">&times;</button>
-                  </div>
-                  <div className="flex-1 overflow-y-auto p-6 space-y-8">
-                      <div className="flex flex-wrap gap-4 justify-end p-4 bg-purple-50 rounded-xl border border-purple-100">
-                          <span className="flex items-center font-bold text-purple-800 mr-auto">📥 Exportar Relatório Final:</span>
-                          <button onClick={() => handleDownloadTournamentReport('xlsx')} className="px-4 py-2 bg-green-600 text-white rounded font-bold text-sm hover:bg-green-700 shadow">.XLSX (Excel)</button>
-                          <button onClick={() => handleDownloadTournamentReport('xls')} className="px-4 py-2 bg-green-500 text-white rounded font-bold text-sm hover:bg-green-600 shadow">.XLS (Antigo)</button>
-                          <button onClick={() => handleDownloadTournamentReport('csv')} className="px-4 py-2 bg-blue-500 text-white rounded font-bold text-sm hover:bg-blue-600 shadow">.CSV</button>
-                      </div>
-                      {Object.values(Shift).map(shift => {
-                          const shiftMatches = filteredMatches.filter(m => m.shift === shift)
-                              .sort((a, b) => {
-                                  if (a.courtNumber !== b.courtNumber) return a.courtNumber - b.courtNumber;
-                                  return a.gameNumber - b.gameNumber;
-                              });
-                          return (
-                              <div key={shift} className="border rounded-xl overflow-hidden shadow-sm">
-                                  <div className="bg-gray-800 text-white p-3 font-bold flex justify-between">
-                                      <span>{shift}</span>
-                                      <span className="text-xs bg-gray-700 px-2 py-1 rounded">{shiftMatches.length} Jogos</span>
-                                  </div>
-                                  <div className="overflow-x-auto">
-                                      <table className="w-full text-sm">
-                                          <thead className="bg-gray-100 text-gray-600 uppercase text-xs font-bold">
-                                              <tr>
-                                                  <th className="px-4 py-2 text-center w-16">Campo</th>
-                                                  <th className="px-4 py-2 text-center w-16">Jogo</th>
-                                                  <th className="px-4 py-2 text-left">Equipa</th>
-                                                  <th className="px-4 py-2 text-center w-24">Resultado</th>
-                                                  <th className="px-4 py-2 text-right w-16">Pts</th>
-                                              </tr>
-                                          </thead>
-                                          <tbody className="divide-y divide-gray-100">
-                                              {shiftMatches.length > 0 ? (
-                                                  shiftMatches.map(m => {
-                                                      const teamNames = m.playerIds.map(pid => getPlayerDetails(pid)?.name || '...').join(' & ');
-                                                      return (
-                                                          <tr key={m.id} className="hover:bg-gray-50/50">
-                                                              <td className="px-4 py-2 text-center font-bold text-gray-500">{m.courtNumber}</td>
-                                                              <td className="px-4 py-2 text-center font-mono text-gray-400">#{m.gameNumber}</td>
-                                                              <td className="px-4 py-2 font-semibold text-gray-700">{teamNames}</td>
-                                                              <td className="px-4 py-2 text-center">
-                                                                  <span className={`px-2 py-1 rounded text-xs font-bold ${
-                                                                      m.result === GameResult.WIN ? 'bg-green-100 text-green-800' :
-                                                                      m.result === GameResult.DRAW ? 'bg-yellow-100 text-yellow-800' :
-                                                                      'bg-red-100 text-red-800'
-                                                                  }`}>
-                                                                      {m.result}
-                                                                  </span>
-                                                              </td>
-                                                              <td className="px-4 py-2 text-right font-bold text-padel-dark">{getPointsForResult(m.result)}</td>
-                                                          </tr>
-                                                      );
-                                                  })
-                                              ) : (
-                                                  <tr>
-                                                      <td colSpan={5} className="p-6 text-center text-gray-400 italic">Sem jogos registados neste turno.</td>
-                                                  </tr>
-                                              )}
-                                          </tbody>
-                                      </table>
-                                  </div>
-                              </div>
-                          );
-                      })}
-                  </div>
-                  <div className="p-4 border-t border-gray-200 bg-gray-50 rounded-b-2xl text-right">
-                      <Button onClick={() => setShowEndTournament(false)} variant="secondary">Fechar</Button>
                   </div>
               </div>
           </div>

@@ -72,7 +72,7 @@ export const fetchAllData = async () => {
         const thirtyDaysAgoStr = thirtyDaysAgo.toISOString().split('T')[0];
 
         const [p, r, m, msg, config, settings] = await Promise.all([
-            client.from('players').select('*').order('participantNumber', { ascending: true }).limit(500),
+            client.from('players').select('*').order('participantNumber', { ascending: true }).limit(1000),
             client.from('registrations').select('*'),
             client.from('matches').select('*').gte('date', thirtyDaysAgoStr).order('timestamp', { ascending: false }),
             client.from('messages').select('*').order('timestamp', { ascending: false }).limit(50),
@@ -291,15 +291,35 @@ export const savePlayer = async (player: Player): Promise<void> => {
 
 export const savePlayersBulk = async (players: Player[]): Promise<void> => {
     const client = getSupabase();
+    const currentLocal = getPlayers();
+    
+    // Merge local
+    const updatedLocal = [...currentLocal];
+    players.forEach(newP => {
+        const idx = updatedLocal.findIndex(p => p.phone === newP.phone);
+        if (idx >= 0) updatedLocal[idx] = { ...updatedLocal[idx], ...newP };
+        else updatedLocal.push(newP);
+    });
+
+    localStorage.setItem(KEYS.PLAYERS, JSON.stringify(updatedLocal));
+
     const payload = players.map(p => ({
         id: p.id, 
         name: p.name.trim(), 
         phone: normalizePhone(p.phone), 
-        password: p.password,
-        totalPoints: p.totalPoints, gamesPlayed: p.gamesPlayed, participantNumber: p.participantNumber,
-        role: p.role, photoUrl: p.photoUrl, isApproved: p.isApproved, lastActive: p.lastActive
+        password: p.password || '',
+        totalPoints: p.totalPoints, 
+        gamesPlayed: p.gamesPlayed, 
+        participantNumber: p.participantNumber,
+        role: p.role || 'user', 
+        photoUrl: p.photoUrl || null, 
+        isApproved: p.isApproved ?? true, 
+        lastActive: p.lastActive || null
     }));
-    await client.from('players').upsert(payload);
+
+    const { error } = await client.from('players').upsert(payload);
+    if (error) console.error("Erro no upsert bulk:", error);
+    
     notifyListeners();
 };
 
@@ -374,7 +394,15 @@ export const getAppState = (): AppState => {
 };
 
 export const updateAppState = async (updates: Partial<AppState>): Promise<void> => {
-    const dbUpdates: any = {};
+    const currentState = getAppState();
+    const newState = { ...currentState, ...updates };
+    
+    // Atualiza cache local imediatamente para feedback instantâneo (Optimistic UI)
+    localStorage.setItem(KEYS.STATE, JSON.stringify(newState));
+    notifyListeners();
+
+    // Mapeamento para os nomes das colunas na BD
+    const dbUpdates: any = { id: 1 };
     if (updates.registrationsOpen !== undefined) dbUpdates.registrations_open = updates.registrationsOpen;
     if (updates.nextSundayDate !== undefined) dbUpdates.next_sunday_date = updates.nextSundayDate;
     if (updates.isTournamentFinished !== undefined) dbUpdates.is_tournament_finished = updates.isTournamentFinished;
@@ -389,7 +417,8 @@ export const updateAppState = async (updates: Partial<AppState>): Promise<void> 
     if (updates.dailyTip !== undefined) dbUpdates.daily_tip = updates.dailyTip;
     if (updates.dailyTipDate !== undefined) dbUpdates.daily_tip_date = updates.dailyTipDate;
 
-    await getSupabase().from('app_config').update(dbUpdates).eq('id', 1);
+    // Usar upsert em vez de update para garantir que o registo com ID 1 existe
+    await getSupabase().from('app_config').upsert(dbUpdates);
 };
 
 export const approvePlayer = async (id: string) => {
@@ -407,7 +436,12 @@ export const resolvePasswordReset = async (requestId: string) => {
 };
 
 export const removePlayer = async (id: string) => {
-    await getSupabase().from('players').delete().eq('id', id);
+    const client = getSupabase();
+    await Promise.all([
+        client.from('players').delete().eq('id', id),
+        client.from('registrations').delete().or(`playerId.eq.${id},partnerId.eq.${id}`),
+        client.from('messages').delete().or(`senderId.eq.${id},receiverId.eq.${id}`)
+    ]);
 };
 
 export const clearAllMessages = async () => {
