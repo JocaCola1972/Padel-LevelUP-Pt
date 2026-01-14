@@ -326,7 +326,9 @@ export const deleteMatchesByDate = async (date: string) => {
     await client.from('matches').delete().eq('date', date);
 };
 
+// Fix: Add client initialization to avoid "Cannot find name 'client'" error
 export const deleteRegistrationsByDate = async (date: string) => {
+    const client = getSupabase();
     await client.from('registrations').delete().eq('date', date);
 };
 
