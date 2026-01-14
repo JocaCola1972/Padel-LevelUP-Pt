@@ -33,10 +33,11 @@ export const RankingTable: React.FC = () => {
   };
 
   const rankingData = useMemo(() => {
+    let sorted: any[] = [];
     if (selectedFilter === 'ALL') {
-        return players
+        sorted = players
             .map(p => ({ ...p, displayPoints: p.totalPoints, displayGames: p.gamesPlayed }))
-            .sort((a, b) => b.displayPoints - a.displayPoints);
+            .sort((a, b) => b.displayPoints - a.displayPoints || b.displayGames - a.displayGames);
     } else {
         const shiftMatches = matches.filter(m => m.shift === selectedFilter);
         const pointsMap: Record<string, number> = {};
@@ -53,10 +54,21 @@ export const RankingTable: React.FC = () => {
             });
         });
 
-        return players
+        sorted = players
             .map(p => ({ ...p, displayPoints: pointsMap[p.id] || 0, displayGames: gamesMap[p.id] || 0 }))
             .sort((a, b) => b.displayPoints - a.displayPoints || b.displayGames - a.displayGames);
     }
+
+    // Calcular Ranks com Empates
+    let currentRank = 1;
+    let lastPoints = -1;
+    return sorted.map((player, index) => {
+        if (player.displayPoints !== lastPoints) {
+            currentRank = index + 1;
+        }
+        lastPoints = player.displayPoints;
+        return { ...player, rankPosition: currentRank };
+    });
   }, [players, matches, selectedFilter]);
 
   const handleGenerateAnalysis = async () => {
@@ -98,9 +110,11 @@ export const RankingTable: React.FC = () => {
               </tr>
             </thead>
             <tbody className="divide-y">
-              {rankingData.map((player, index) => (
+              {rankingData.map((player) => (
                 <tr key={player.id} className="hover:bg-gray-50">
-                  <td className="px-4 py-3 text-sm text-gray-500 font-mono">{index < 3 ? ['🥇','🥈','🥉'][index] : `${index + 1}º`}</td>
+                  <td className="px-4 py-3 text-sm text-gray-500 font-mono">
+                    {player.rankPosition <= 3 ? ['🥇','🥈','🥉'][player.rankPosition - 1] : `${player.rankPosition}º`}
+                  </td>
                   <td className="px-4 py-3"><div className="flex flex-col"><span className="text-sm font-bold text-gray-900">{player.name}</span><span className="text-[10px] text-gray-400"># {player.participantNumber}</span></div></td>
                   <td className="px-4 py-3 text-center text-sm text-gray-500">{player.displayGames}</td>
                   <td className="px-4 py-3 text-right"><span className="px-2 py-1 text-xs font-bold rounded-full bg-padel/10 text-padel-dark">{player.displayPoints}</span></td>

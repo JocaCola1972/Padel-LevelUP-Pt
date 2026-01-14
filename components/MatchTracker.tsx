@@ -25,73 +25,42 @@ export const MatchTracker: React.FC<MatchTrackerProps> = ({ currentUser }) => {
   const [matches, setMatches] = useState<MatchRecord[]>([]);
   const [allPlayers, setAllPlayers] = useState<Player[]>([]);
   const [registrations, setRegistrations] = useState<Registration[]>([]);
-  const [alertConfig, setAlertConfig] = useState<{ message: string; subMessage?: string } | null>(null);
   const [historyDate, setHistoryDate] = useState<string>('');
   const [isLoadingHistory, setIsLoadingHistory] = useState(false);
   const [selfResult, setSelfResult] = useState<GameResult | null>(null);
   const [goldenPointWon, setGoldenPointWon] = useState<boolean | null>(null);
 
   const loadData = useCallback(() => {
-    const currentMatches = getMatches();
     const currentState = getAppState();
-    const currentRegistrations = getRegistrations();
-    const players = getPlayers();
-    
-    setMatches(currentMatches);
+    setMatches(getMatches());
     setAppState(currentState);
-    setAllPlayers(players);
+    setAllPlayers(getPlayers());
+    const currentRegistrations = getRegistrations();
     setRegistrations(currentRegistrations);
 
     const myRegs = currentRegistrations.filter(r => 
       (r.playerId === currentUser.id || r.partnerId === currentUser.id) && 
-      r.date === currentState.nextSundayDate && 
-      (r.type === 'game' || !r.type)
+      r.date === currentState.nextSundayDate && !r.isWaitingList
     );
-
-    const confirmedRegs = myRegs.filter(r => !r.isWaitingList);
-    const uniqueConfirmedShifts = Array.from(new Set(confirmedRegs.map(r => r.shift)));
-    setAvailableShifts(uniqueConfirmedShifts);
-
-    if (uniqueConfirmedShifts.length > 0) {
-        if (!selectedShift || !uniqueConfirmedShifts.includes(selectedShift)) {
-            setSelectedShift(uniqueConfirmedShifts[0]);
-        }
-    } else {
-        setSelectedShift(null);
-    }
-    
-    if (!historyDate) {
-        setHistoryDate(currentState.nextSundayDate);
-    }
-
+    const uniqueShifts = Array.from(new Set(myRegs.map(r => r.shift)));
+    setAvailableShifts(uniqueShifts);
+    if (uniqueShifts.length > 0 && !selectedShift) setSelectedShift(uniqueShifts[0]);
+    if (!historyDate) setHistoryDate(currentState.nextSundayDate);
   }, [currentUser.id, selectedShift, historyDate]);
 
   useEffect(() => {
     loadData();
     const unsubscribe = subscribeToChanges(loadData);
     return () => unsubscribe();
-  }, [loadData]); 
+  }, [loadData]);
 
-  const handleSearchHistory = async () => {
-      setIsLoadingHistory(true);
-      try {
-          const historicalMatches = await fetchMatchesByDate(historyDate);
-          // Faz merge com os locais mas apenas para exibição
-          setMatches(historicalMatches);
-      } catch (err) {
-          alert("Erro ao buscar histórico.");
-      } finally {
-          setIsLoadingHistory(false);
-      }
-  };
-
-  const getPlayerName = (id: string) => allPlayers.find(p => p.id === id)?.name || 'Jogador...';
-
-  const handleSubmitSelf = (e: React.FormEvent) => {
+  const handleSubmitSelf = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!selfResult || !selectedShift) return;
+    
+    // Validação estrita do Ponto de Ouro em caso de empate
     if (selfResult === GameResult.DRAW && goldenPointWon === null) {
-        setAlertConfig({ message: "Ponto de Ouro?", subMessage: "Indica quem ganhou o ponto final." });
+        alert("Em caso de Empate, tens de indicar quem ganhou o PONTO DE OURO!");
         return;
     }
 
@@ -108,86 +77,74 @@ export const MatchTracker: React.FC<MatchTrackerProps> = ({ currentUser }) => {
       goldenPointWon: selfResult === GameResult.DRAW ? (goldenPointWon === true) : undefined
     };
 
-    addMatch(record, POINTS_MAP[selfResult]);
+    await addMatch(record, POINTS_MAP[selfResult]);
     setSubmitted(true);
     setTimeout(() => { setSubmitted(false); setSelfResult(null); setGoldenPointWon(null); }, 2000);
   };
 
+  const handleSearchHistory = async () => {
+    setIsLoadingHistory(true);
+    try {
+        const h = await fetchMatchesByDate(historyDate);
+        setMatches(h);
+    } finally {
+        setIsLoadingHistory(false);
+    }
+  };
+
   if (viewMode === 'history') {
       return (
-        <div className="bg-white rounded-xl shadow-lg overflow-hidden border-t-4 border-blue-600 animate-fade-in">
-            <div className="p-6">
-                <div className="flex justify-between items-start mb-6">
-                    <h2 className="text-xl font-bold text-gray-800">📜 Histórico</h2>
-                    <Button variant="ghost" onClick={() => setViewMode('input')} className="text-xs">Voltar</Button>
-                </div>
-                
-                <div className="flex gap-2 mb-6 bg-gray-50 p-3 rounded-lg border border-gray-100">
-                    <input 
-                        type="date" value={historyDate} onChange={e => setHistoryDate(e.target.value)}
-                        className="flex-1 p-2 border rounded text-sm outline-none focus:ring-1 focus:ring-blue-400"
-                    />
-                    <Button onClick={handleSearchHistory} isLoading={isLoadingHistory} className="text-xs px-4">Ver</Button>
-                </div>
-
-                <div className="space-y-3">
-                    {matches.length > 0 ? (
-                        matches.map(match => (
-                            <div key={match.id} className="border border-gray-100 rounded-lg p-3 bg-white flex justify-between items-center text-sm shadow-sm">
-                                <div>
-                                    <div className="flex items-center gap-2 mb-1">
-                                        <span className="bg-blue-50 text-blue-700 text-[9px] font-black uppercase px-2 py-0.5 rounded border border-blue-100">{match.shift}</span>
-                                        <span className="text-gray-400 font-mono text-xs">C{match.courtNumber} • J{match.gameNumber}</span>
-                                    </div>
-                                    <div className="font-bold text-gray-700">{match.playerIds.map(pid => getPlayerName(pid)).join(' & ')}</div>
-                                </div>
-                                <div className={`px-2 py-1 rounded font-black text-[10px] uppercase ${match.result === GameResult.WIN ? 'bg-green-100 text-green-700' : match.result === GameResult.DRAW ? 'bg-yellow-100 text-yellow-700' : 'bg-red-100 text-red-700'}`}>
-                                    {match.result}
-                                </div>
-                            </div>
-                        ))
-                    ) : <div className="text-center py-10 text-gray-400 italic">Sem resultados para esta data.</div>}
-                </div>
+        <div className="bg-white rounded-xl shadow-lg border-t-4 border-blue-600 animate-fade-in p-6">
+            <div className="flex justify-between items-start mb-6">
+                <h2 className="text-xl font-bold">📜 Histórico</h2>
+                <Button variant="ghost" onClick={() => setViewMode('input')} className="text-xs">Voltar</Button>
+            </div>
+            <div className="flex gap-2 mb-6 bg-gray-50 p-3 rounded-lg">
+                <input type="date" value={historyDate} onChange={e => setHistoryDate(e.target.value)} className="flex-1 p-2 border rounded text-sm" />
+                <Button onClick={handleSearchHistory} isLoading={isLoadingHistory} className="text-xs px-4">Ver</Button>
+            </div>
+            <div className="space-y-3">
+                {matches.map(m => (
+                    <div key={m.id} className="border p-3 rounded-lg flex justify-between items-center text-sm">
+                        <div className="font-bold">{m.playerIds.map(pid => allPlayers.find(p => p.id === pid)?.name).join(' & ')}</div>
+                        <div className={`px-2 py-1 rounded font-black text-[10px] ${m.result === GameResult.WIN ? 'bg-green-100' : 'bg-red-100'}`}>{m.result}</div>
+                    </div>
+                ))}
             </div>
         </div>
       );
   }
 
   return (
-    <div className="bg-white rounded-xl shadow-lg overflow-hidden border-t-4 border-padel-dark relative animate-fade-in">
-      <div className="p-6">
-        <div className="flex justify-between items-center mb-6">
-            <h2 className="text-xl font-bold flex items-center gap-2 text-gray-800">🥎 Registar Resultado</h2>
-            <button onClick={() => setViewMode('history')} className="text-xs text-blue-600 font-bold hover:underline">Ver Histórico</button>
-        </div>
-
-        {submitted ? (
-          <div className="text-center py-10 animate-fade-in">
-            <div className="text-5xl mb-4">✅</div>
-            <h3 className="text-xl font-bold text-gray-800">Guardado com sucesso!</h3>
-          </div>
-        ) : (
-          <form onSubmit={handleSubmitSelf} className="space-y-6">
-            {/* Formulario já funcional... */}
-            <div>
-                <label className="block text-xs font-bold text-gray-500 uppercase mb-2">Turno</label>
-                <select value={selectedShift!} onChange={(e) => setSelectedShift(e.target.value as Shift)} className="w-full p-3 border rounded-lg bg-white font-bold">
-                    {availableShifts.map(s => <option key={s} value={s}>{s}</option>)}
-                </select>
-            </div>
-            <div className="grid grid-cols-2 gap-4">
-                <div><label className="block text-xs font-bold text-gray-500 mb-2 uppercase">Jogo</label><input disabled value={`Jogo ${selectedGame}`} className="w-full p-3 border rounded-lg bg-gray-50 font-bold" /></div>
-                <div><label className="block text-xs font-bold text-gray-500 mb-2 uppercase">Campo</label><input disabled value={`Campo ${selectedCourt}`} className="w-full p-3 border rounded-lg bg-gray-50 font-bold" /></div>
-            </div>
-            <div className="grid grid-cols-3 gap-2">
-                <button type="button" onClick={() => {setSelfResult(GameResult.WIN); setGoldenPointWon(null);}} className={`p-4 rounded-xl border-2 flex flex-col items-center gap-1 transition-all ${selfResult === GameResult.WIN ? 'border-green-500 bg-green-50 text-green-700' : 'bg-gray-50 border-transparent'}`}>🏆<span className="font-bold text-xs uppercase">Ganhei</span></button>
-                <button type="button" onClick={() => {setSelfResult(GameResult.DRAW); setGoldenPointWon(null);}} className={`p-4 rounded-xl border-2 flex flex-col items-center gap-1 transition-all ${selfResult === GameResult.DRAW ? 'border-yellow-500 bg-yellow-50 text-yellow-700' : 'bg-gray-50 border-transparent'}`}>🤝<span className="font-bold text-xs uppercase">Empate</span></button>
-                <button type="button" onClick={() => {setSelfResult(GameResult.LOSS); setGoldenPointWon(null);}} className={`p-4 rounded-xl border-2 flex flex-col items-center gap-1 transition-all ${selfResult === GameResult.LOSS ? 'border-red-400 bg-red-50 text-red-700' : 'bg-gray-50 border-transparent'}`}>📉<span className="font-bold text-xs uppercase">Perdi</span></button>
-            </div>
-            <Button type="submit" disabled={!selfResult} className="w-full py-4 text-lg">Confirmar</Button>
-          </form>
-        )}
+    <div className="bg-white rounded-xl shadow-lg border-t-4 border-padel-dark p-6 animate-fade-in">
+      <div className="flex justify-between items-center mb-6">
+          <h2 className="text-xl font-bold">🥎 Registar Resultado</h2>
+          <button onClick={() => setViewMode('history')} className="text-xs text-blue-600 font-bold">Histórico</button>
       </div>
+      {submitted ? (
+          <div className="text-center py-10">✅ Guardado!</div>
+      ) : (
+          <form onSubmit={handleSubmitSelf} className="space-y-6">
+            <select value={selectedShift!} onChange={(e) => setSelectedShift(e.target.value as Shift)} className="w-full p-3 border rounded-lg font-bold">
+                {availableShifts.map(s => <option key={s} value={s}>{s}</option>)}
+            </select>
+            <div className="grid grid-cols-3 gap-2">
+                <button type="button" onClick={() => {setSelfResult(GameResult.WIN); setGoldenPointWon(null);}} className={`p-4 rounded-xl border-2 flex flex-col items-center gap-1 ${selfResult === GameResult.WIN ? 'border-green-500 bg-green-50' : 'bg-gray-50'}`}>🏆<span className="font-bold text-xs">VENCEU</span></button>
+                <button type="button" onClick={() => {setSelfResult(GameResult.DRAW); setGoldenPointWon(null);}} className={`p-4 rounded-xl border-2 flex flex-col items-center gap-1 ${selfResult === GameResult.DRAW ? 'border-yellow-500 bg-yellow-50' : 'bg-gray-50'}`}>🤝<span className="font-bold text-xs">EMPATE</span></button>
+                <button type="button" onClick={() => {setSelfResult(GameResult.LOSS); setGoldenPointWon(null);}} className={`p-4 rounded-xl border-2 flex flex-col items-center gap-1 ${selfResult === GameResult.LOSS ? 'border-red-400 bg-red-50' : 'bg-gray-50'}`}>📉<span className="font-bold text-xs">PERDEU</span></button>
+            </div>
+            {selfResult === GameResult.DRAW && (
+                <div className="animate-slide-down p-4 bg-yellow-50 border border-yellow-200 rounded-xl">
+                    <p className="text-[10px] font-black text-yellow-700 uppercase tracking-widest text-center mb-3">Quem ganhou o Ponto de Ouro?</p>
+                    <div className="grid grid-cols-2 gap-3">
+                        <button type="button" onClick={() => setGoldenPointWon(true)} className={`p-3 rounded-lg border-2 font-black text-[10px] uppercase transition-all ${goldenPointWon === true ? 'bg-yellow-400 border-yellow-600 text-yellow-900' : 'bg-white border-gray-200'}`}>Minha Equipa</button>
+                        <button type="button" onClick={() => setGoldenPointWon(false)} className={`p-3 rounded-lg border-2 font-black text-[10px] uppercase transition-all ${goldenPointWon === false ? 'bg-gray-300 border-gray-400 text-gray-700' : 'bg-white border-gray-200'}`}>Adversários</button>
+                    </div>
+                </div>
+            )}
+            <Button type="submit" disabled={!selfResult || (selfResult === GameResult.DRAW && goldenPointWon === null)} className="w-full py-4 text-lg">Confirmar</Button>
+          </form>
+      )}
     </div>
   );
 };

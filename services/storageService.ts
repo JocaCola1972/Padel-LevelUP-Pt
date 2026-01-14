@@ -23,12 +23,9 @@ let isSyncing = false;
 type DataChangeListener = () => void;
 const listeners: DataChangeListener[] = [];
 
-// Função auxiliar para garantir que o telemóvel é guardado sempre no mesmo formato
 export const normalizePhone = (phone: string): string => {
     if (!phone) return "";
-    // Se for o login especial de admin, mantém
     if (phone.toLowerCase() === 'jocacola') return 'JocaCola';
-    // Remove espaços, parênteses, traços e espaços em branco
     return phone.replace(/[^0-9]/g, "").trim();
 };
 
@@ -75,7 +72,7 @@ export const fetchAllData = async () => {
             client.from('players').select('*').order('participantNumber', { ascending: true }).limit(1000),
             client.from('registrations').select('*'),
             client.from('matches').select('*').gte('date', thirtyDaysAgoStr).order('timestamp', { ascending: false }),
-            client.from('messages').select('*').order('timestamp', { ascending: false }).limit(50),
+            client.from('messages').select('*').order('timestamp', { ascending: false }).limit(100),
             client.from('app_config').select('*').eq('id', 1).maybeSingle(),
             client.from('settings').select('*')
         ]);
@@ -161,7 +158,12 @@ const handleRealtimeUpdate = (payload: any) => {
         case 'registrations': storageKey = KEYS.REGISTRATIONS; break;
         case 'matches': storageKey = KEYS.MATCHES; break;
         case 'messages': storageKey = KEYS.MESSAGES; break;
-        case 'settings': if (newRecord?.key === 'masters') localStorage.setItem(KEYS.MASTERS, JSON.stringify(newRecord.value)); notifyListeners(); return;
+        case 'settings': 
+            if (newRecord?.key === 'masters') {
+                localStorage.setItem(KEYS.MASTERS, JSON.stringify(newRecord.value));
+            } 
+            notifyListeners(); 
+            return;
         default: return;
     }
 
@@ -182,28 +184,16 @@ const handleRealtimeUpdate = (payload: any) => {
 export const signUp = async (name: string, phone: string, password?: string) => {
     const client = getSupabase();
     const cleanPhone = normalizePhone(phone);
-    const cleanName = name.trim();
-
-    if (!cleanPhone) throw new Error("Número de telemóvel inválido.");
-
-    // Verificação rigorosa na Base de Dados antes de qualquer inserção
     const { data: existing } = await client.from('players').select('id').eq('phone', cleanPhone).maybeSingle();
-    if (existing) throw new Error("Este número já está registado. Tenta fazer Login.");
-
+    if (existing) throw new Error("Este número já está registado.");
     const { count } = await client.from('players').select('*', { count: 'exact', head: true });
     const nextId = (count || 0) + 1;
     const isSuperAdmin = cleanPhone === 'JocaCola';
-
     const newPlayer: Player = {
-        id: generateUUID(),
-        name: cleanName, 
-        phone: cleanPhone, 
-        password: password || '',
+        id: generateUUID(), name: name.trim(), phone: cleanPhone, password: password || '',
         participantNumber: nextId, totalPoints: 0, gamesPlayed: 0,
-        isApproved: isSuperAdmin, 
-        role: isSuperAdmin ? 'super_admin' : 'user'
+        isApproved: isSuperAdmin, role: isSuperAdmin ? 'super_admin' : 'user'
     };
-
     const { error } = await client.from('players').insert(newPlayer);
     if (error) throw error;
     return newPlayer;
@@ -212,23 +202,10 @@ export const signUp = async (name: string, phone: string, password?: string) => 
 export const signIn = async (phone: string, password?: string) => {
     const client = getSupabase();
     const cleanPhone = normalizePhone(phone);
-
     const { data: user, error } = await client.from('players').select('*').eq('phone', cleanPhone).maybeSingle();
-    
     if (error) throw error;
-    if (!user) throw new Error("Utilizador não encontrado. Verifica o número.");
-    
-    if (user.password && user.password !== '' && user.password !== (password || '')) {
-        throw new Error("Password incorreta.");
-    }
-
-    // Auto-update SuperAdmin se necessário
-    if (cleanPhone === 'JocaCola' && user.role !== 'super_admin') {
-        await client.from('players').update({ role: 'super_admin', isApproved: true }).eq('id', user.id);
-        user.role = 'super_admin';
-        user.isApproved = true;
-    }
-
+    if (!user) throw new Error("Utilizador não encontrado.");
+    if (user.password && user.password !== (password || '')) throw new Error("Password incorreta.");
     localStorage.setItem(KEYS.SESSION, JSON.stringify(user));
     notifyListeners();
     return user;
@@ -244,82 +221,18 @@ export const signOut = async () => {
     notifyListeners();
 };
 
-export const uploadAvatar = async (playerId: string, file: File): Promise<string> => {
-    const client = getSupabase();
-    const fileExt = file.name.split('.').pop();
-    const fileName = `${playerId}-${Date.now()}.${fileExt}`;
-    const filePath = `avatars/${fileName}`;
-    const { error: uploadError } = await client.storage.from('avatars').upload(filePath, file);
-    if (uploadError) throw uploadError;
-    const { data } = client.storage.from('avatars').getPublicUrl(filePath);
-    return data.publicUrl;
-};
-
-export const uploadSiteAsset = async (file: File, namePrefix: string): Promise<string> => {
-    const client = getSupabase();
-    const fileExt = file.name.split('.').pop();
-    const fileName = `${namePrefix}-${Date.now()}.${fileExt}`;
-    const filePath = `assets/${fileName}`;
-    const { error: uploadError } = await client.storage.from('avatars').upload(filePath, file);
-    if (uploadError) throw uploadError;
-    const { data } = client.storage.from('avatars').getPublicUrl(filePath);
-    return data.publicUrl;
-};
-
 export const getPlayers = (): Player[] => JSON.parse(localStorage.getItem(KEYS.PLAYERS) || '[]');
+export const getAppState = (): AppState => JSON.parse(localStorage.getItem(KEYS.STATE) || '{"registrationsOpen":false,"courtConfig":{},"nextSundayDate":"","gamesPerShift":{},"passwordResetRequests":[]}');
 
 export const savePlayer = async (player: Player): Promise<void> => {
     const client = getSupabase();
-    const players = getPlayers();
-    
-    // Normalização no save individual
-    player.phone = normalizePhone(player.phone);
-    player.name = player.name.trim();
-
-    const idx = players.findIndex(p => p.id === player.id);
-    if (idx >= 0) players[idx] = { ...players[idx], ...player };
-    else players.push(player);
-    
-    localStorage.setItem(KEYS.PLAYERS, JSON.stringify(players));
-    const current = getCurrentUser();
-    if (current && current.id === player.id) localStorage.setItem(KEYS.SESSION, JSON.stringify(player));
+    await client.from('players').upsert(player);
     notifyListeners();
-
-    const { id, name, phone, password, totalPoints, gamesPlayed, participantNumber, role, photoUrl, isApproved, lastActive } = player;
-    await client.from('players').upsert({ id, name, phone, password, totalPoints, gamesPlayed, participantNumber, role, photoUrl, isApproved, lastActive });
 };
 
 export const savePlayersBulk = async (players: Player[]): Promise<void> => {
     const client = getSupabase();
-    const currentLocal = getPlayers();
-    
-    // Merge local
-    const updatedLocal = [...currentLocal];
-    players.forEach(newP => {
-        const idx = updatedLocal.findIndex(p => p.phone === newP.phone);
-        if (idx >= 0) updatedLocal[idx] = { ...updatedLocal[idx], ...newP };
-        else updatedLocal.push(newP);
-    });
-
-    localStorage.setItem(KEYS.PLAYERS, JSON.stringify(updatedLocal));
-
-    const payload = players.map(p => ({
-        id: p.id, 
-        name: p.name.trim(), 
-        phone: normalizePhone(p.phone), 
-        password: p.password || '',
-        totalPoints: p.totalPoints, 
-        gamesPlayed: p.gamesPlayed, 
-        participantNumber: p.participantNumber,
-        role: p.role || 'user', 
-        photoUrl: p.photoUrl || null, 
-        isApproved: p.isApproved ?? true, 
-        lastActive: p.lastActive || null
-    }));
-
-    const { error } = await client.from('players').upsert(payload);
-    if (error) console.error("Erro no upsert bulk:", error);
-    
+    await client.from('players').upsert(players);
     notifyListeners();
 };
 
@@ -332,10 +245,6 @@ export const updateRegistration = async (id: string, updates: Partial<Registrati
 };
 export const removeRegistration = async (id: string): Promise<void> => {
     await getSupabase().from('registrations').delete().eq('id', id);
-};
-
-export const deleteRegistrationsByDate = async (date: string) => {
-    await getSupabase().from('registrations').delete().eq('date', date);
 };
 
 export const getMatches = (): MatchRecord[] => JSON.parse(localStorage.getItem(KEYS.MATCHES) || '[]');
@@ -354,137 +263,40 @@ export const addMatch = async (match: MatchRecord, points: number): Promise<void
     ]);
 };
 
-export const deleteMatchesByDate = async (date: string) => {
-    const client = getSupabase();
-    const { data: matchesToDelete } = await client.from('matches').select('*').eq('date', date);
-    if (!matchesToDelete || matchesToDelete.length === 0) return;
-    const players = getPlayers();
-    matchesToDelete.forEach((match: MatchRecord) => {
-        const pts = match.result === GameResult.WIN ? 4 : (match.result === GameResult.DRAW ? 2 : 1);
-        match.playerIds.forEach(pid => {
-            const p = players.find(x => x.id === pid);
-            if (p) {
-                p.totalPoints = Math.max(0, p.totalPoints - pts);
-                p.gamesPlayed = Math.max(0, p.gamesPlayed - 1);
-            }
-        });
-    });
-    await Promise.all([
-        client.from('matches').delete().eq('date', date),
-        client.from('players').upsert(players.map(p => ({ 
-            id: p.id, totalPoints: p.totalPoints, gamesPlayed: p.gamesPlayed 
-        })))
-    ]);
-};
-
-export const fetchMatchesByDate = async (date: string): Promise<MatchRecord[]> => {
-    const { data, error } = await getSupabase().from('matches').select('*').eq('date', date).order('timestamp', { ascending: false });
-    if (error) throw error;
-    return data || [];
-};
-
 export const getMessages = (): Message[] => JSON.parse(localStorage.getItem(KEYS.MESSAGES) || '[]');
 export const saveMessage = async (msg: Message): Promise<void> => {
     await getSupabase().from('messages').insert(msg);
 };
 
-export const getAppState = (): AppState => {
-    const data = localStorage.getItem(KEYS.STATE);
-    return data ? JSON.parse(data) : { registrationsOpen: false, courtConfig: {}, nextSundayDate: '', gamesPerShift: {}, passwordResetRequests: [] };
+export const getMessagesForUser = (uid: string) => {
+    const allMessages = getMessages();
+    const registrations = getRegistrations();
+    const state = getAppState();
+    const userRegistrations = registrations.filter(r => (r.playerId === uid || r.partnerId === uid) && r.date === state.nextSundayDate);
+    const userShifts = userRegistrations.map(r => r.shift);
+
+    return allMessages.filter(m => 
+        m.receiverId === uid || 
+        m.receiverId === 'ALL' || 
+        userShifts.includes(m.receiverId as Shift)
+    );
 };
 
 export const updateAppState = async (updates: Partial<AppState>): Promise<void> => {
     const currentState = getAppState();
     const newState = { ...currentState, ...updates };
-    
-    // Atualiza cache local imediatamente para feedback instantâneo (Optimistic UI)
     localStorage.setItem(KEYS.STATE, JSON.stringify(newState));
     notifyListeners();
 
-    // Mapeamento para os nomes das colunas na BD
     const dbUpdates: any = { id: 1 };
     if (updates.registrationsOpen !== undefined) dbUpdates.registrations_open = updates.registrationsOpen;
     if (updates.nextSundayDate !== undefined) dbUpdates.next_sunday_date = updates.nextSundayDate;
-    if (updates.isTournamentFinished !== undefined) dbUpdates.is_tournament_finished = updates.isTournamentFinished;
-    if (updates.customLogo !== undefined) dbUpdates.custom_logo = updates.customLogo;
-    if (updates.loginBackground !== undefined) dbUpdates.login_background = updates.loginBackground;
-    if (updates.faviconUrl !== undefined) dbUpdates.favicon_url = updates.faviconUrl;
     if (updates.courtConfig !== undefined) dbUpdates.court_config = updates.courtConfig;
     if (updates.gamesPerShift !== undefined) dbUpdates.games_per_shift = updates.gamesPerShift;
-    if (updates.passwordResetRequests !== undefined) dbUpdates.password_reset_requests = updates.passwordResetRequests;
-    if (updates.adminSectionOrder !== undefined) dbUpdates.admin_section_order = updates.adminSectionOrder;
-    if (updates.toolsSectionOrder !== undefined) dbUpdates.tools_section_order = updates.toolsSectionOrder;
     if (updates.dailyTip !== undefined) dbUpdates.daily_tip = updates.dailyTip;
     if (updates.dailyTipDate !== undefined) dbUpdates.daily_tip_date = updates.dailyTipDate;
 
-    // Usar upsert em vez de update para garantir que o registo com ID 1 existe
     await getSupabase().from('app_config').upsert(dbUpdates);
-};
-
-export const approvePlayer = async (id: string) => {
-    await getSupabase().from('players').update({ isApproved: true }).eq('id', id);
-};
-
-export const approveAllPendingPlayers = async () => {
-    await getSupabase().from('players').update({ isApproved: true }).eq('isApproved', false);
-};
-
-export const resolvePasswordReset = async (requestId: string) => {
-    const state = getAppState();
-    const updatedRequests = state.passwordResetRequests.filter(r => r.id !== requestId);
-    await updateAppState({ passwordResetRequests: updatedRequests });
-};
-
-export const removePlayer = async (id: string) => {
-    const client = getSupabase();
-    await Promise.all([
-        client.from('players').delete().eq('id', id),
-        client.from('registrations').delete().or(`playerId.eq.${id},partnerId.eq.${id}`),
-        client.from('messages').delete().or(`senderId.eq.${id},receiverId.eq.${id}`)
-    ]);
-};
-
-export const clearAllMessages = async () => {
-    await getSupabase().from('messages').delete().neq('id', '0');
-};
-
-export const clearAllRegistrations = async () => {
-    await getSupabase().from('registrations').delete().neq('id', '0');
-};
-
-export const clearMatchesByShift = async (shift: Shift) => {
-    const matches = getMatches().filter(x => x.shift === shift);
-    const players = getPlayers();
-    matches.forEach(match => {
-        const pts = match.result === GameResult.WIN ? 4 : (match.result === GameResult.DRAW ? 2 : 1);
-        match.playerIds.forEach(pid => {
-            const p = players.find(x => x.id === pid);
-            if (p) {
-                p.totalPoints = Math.max(0, p.totalPoints - pts);
-                p.gamesPlayed = Math.max(0, p.gamesPlayed - 1);
-            }
-        });
-    });
-    await Promise.all([
-        getSupabase().from('matches').delete().eq('shift', shift),
-        getSupabase().from('players').upsert(players.map(p => ({ id: p.id, totalPoints: p.totalPoints, gamesPlayed: p.gamesPlayed })))
-    ]);
-};
-
-export const getUnreadCount = (uid: string) => getMessages().filter(m => (m.receiverId === uid || m.receiverId === 'ALL') && !m.read).length;
-export const getMessagesForUser = (uid: string) => getMessages().filter(m => m.receiverId === uid || m.receiverId === 'ALL');
-export const markMessageAsRead = async (id: string) => {
-    await getSupabase().from('messages').update({ read: true }).eq('id', id);
-};
-export const deleteMessageForUser = async (id: string) => {
-    await getSupabase().from('messages').delete().eq('id', id);
-};
-export const deleteAllMessagesForUser = async (uid: string) => {
-    await getSupabase().from('messages').delete().eq('receiverId', uid);
-};
-
-export const updatePresence = async (playerId: string) => {
-    await getSupabase().from('players').update({ lastActive: Date.now() }).eq('id', playerId);
 };
 
 export const saveMastersState = async (state: MastersState): Promise<void> => {
@@ -496,6 +308,44 @@ export const getMastersState = (): MastersState => {
     return data ? JSON.parse(data) : { teams: [], matches: [], currentPhase: 1, pool: [] };
 };
 
+export const approvePlayer = async (id: string) => {
+    await getSupabase().from('players').update({ isApproved: true }).eq('id', id);
+};
+
+export const removePlayer = async (id: string) => {
+    const client = getSupabase();
+    await Promise.all([
+        client.from('players').delete().eq('id', id),
+        client.from('registrations').delete().or(`playerId.eq.${id},partnerId.eq.${id}`),
+        client.from('messages').delete().or(`senderId.eq.${id},receiverId.eq.${id}`)
+    ]);
+};
+
+export const deleteMatchesByDate = async (date: string) => {
+    const client = getSupabase();
+    await client.from('matches').delete().eq('date', date);
+};
+
+export const deleteRegistrationsByDate = async (date: string) => {
+    await client.from('registrations').delete().eq('date', date);
+};
+
+export const markMessageAsRead = async (id: string) => {
+    await getSupabase().from('messages').update({ read: true }).eq('id', id);
+};
+
+export const deleteMessageForUser = async (id: string) => {
+    await getSupabase().from('messages').delete().eq('id', id);
+};
+
+export const deleteAllMessagesForUser = async (uid: string) => {
+    await getSupabase().from('messages').delete().eq('receiverId', uid);
+};
+
+export const updatePresence = async (playerId: string) => {
+    await getSupabase().from('players').update({ lastActive: Date.now() }).eq('id', playerId);
+};
+
 export const fetchPlayersBatch = async (offset: number, limit: number, search?: string): Promise<Player[]> => {
     let query = getSupabase().from('players').select('*').order('participantNumber', { ascending: true }).range(offset, offset + limit - 1);
     if (search) query = query.or(`name.ilike.%${search}%,phone.ilike.%${search}%`);
@@ -503,5 +353,35 @@ export const fetchPlayersBatch = async (offset: number, limit: number, search?: 
     if (error) throw error;
     return data || [];
 };
+
+export const fetchMatchesByDate = async (date: string): Promise<MatchRecord[]> => {
+    const { data, error } = await getSupabase().from('matches').select('*').eq('date', date).order('timestamp', { ascending: false });
+    if (error) throw error;
+    return data || [];
+};
+
+export const getUnreadCount = (uid: string) => getMessagesForUser(uid).filter(m => !m.read).length;
+export const uploadAvatar = async (playerId: string, file: File): Promise<string> => {
+    const client = getSupabase();
+    const fileName = `${playerId}-${Date.now()}.${file.name.split('.').pop()}`;
+    const filePath = `avatars/${fileName}`;
+    const { error: uploadError } = await client.storage.from('avatars').upload(filePath, file);
+    if (uploadError) throw uploadError;
+    const { data } = client.storage.from('avatars').getPublicUrl(filePath);
+    return data.publicUrl;
+};
+
+export const uploadSiteAsset = async (file: File, namePrefix: string): Promise<string> => {
+    const client = getSupabase();
+    const fileName = `${namePrefix}-${Date.now()}.${file.name.split('.').pop()}`;
+    const filePath = `assets/${fileName}`;
+    await client.storage.from('avatars').upload(filePath, file);
+    const { data } = client.storage.from('avatars').getPublicUrl(filePath);
+    return data.publicUrl;
+};
+
+export const clearAllMessages = async () => { await getSupabase().from('messages').delete().neq('id', '0'); };
+export const clearAllRegistrations = async () => { await getSupabase().from('registrations').delete().neq('id', '0'); };
+export const clearMatchesByShift = async (shift: Shift) => { await getSupabase().from('matches').delete().eq('shift', shift); };
 
 export const generateUUID = () => crypto.randomUUID?.() || Math.random().toString(36).substring(2) + Date.now().toString(36);
