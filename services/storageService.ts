@@ -25,8 +25,14 @@ const listeners: DataChangeListener[] = [];
 
 export const normalizePhone = (phone: string): string => {
     if (!phone) return "";
-    if (phone.toLowerCase() === 'jocacola') return 'JocaCola';
+    const p = phone.toLowerCase().trim();
+    if (p === 'jocacola') return 'JocaCola';
     return phone.replace(/[^0-9]/g, "").trim();
+};
+
+const isAdminPhone = (phone: string): boolean => {
+    const clean = normalizePhone(phone);
+    return clean === '917772010' || clean === 'JocaCola';
 };
 
 export const getSupabase = () => {
@@ -186,14 +192,24 @@ export const signUp = async (name: string, phone: string, password?: string) => 
     const cleanPhone = normalizePhone(phone);
     const { data: existing } = await client.from('players').select('id').eq('phone', cleanPhone).maybeSingle();
     if (existing) throw new Error("Este número já está registado.");
+    
     const { count } = await client.from('players').select('*', { count: 'exact', head: true });
     const nextId = (count || 0) + 1;
-    const isSuperAdmin = cleanPhone === 'JocaCola';
+    
+    const isSuperAdmin = isAdminPhone(cleanPhone);
+    
     const newPlayer: Player = {
-        id: generateUUID(), name: name.trim(), phone: cleanPhone, password: password || '',
-        participantNumber: nextId, totalPoints: 0, gamesPlayed: 0,
-        isApproved: isSuperAdmin, role: isSuperAdmin ? 'super_admin' : 'user'
+        id: generateUUID(), 
+        name: name.trim(), 
+        phone: cleanPhone, 
+        password: password || '',
+        participantNumber: nextId, 
+        totalPoints: 0, 
+        gamesPlayed: 0,
+        isApproved: isSuperAdmin, 
+        role: isSuperAdmin ? 'super_admin' : 'user'
     };
+    
     const { error } = await client.from('players').insert(newPlayer);
     if (error) throw error;
     return newPlayer;
@@ -202,10 +218,52 @@ export const signUp = async (name: string, phone: string, password?: string) => 
 export const signIn = async (phone: string, password?: string) => {
     const client = getSupabase();
     const cleanPhone = normalizePhone(phone);
-    const { data: user, error } = await client.from('players').select('*').eq('phone', cleanPhone).maybeSingle();
+    const inputPassword = (password || '').trim();
+
+    // Verificação de credenciais mestre de ADMIN
+    const isMasterAdmin = isAdminPhone(cleanPhone) && inputPassword === '123';
+
+    let { data: user, error } = await client.from('players').select('*').eq('phone', cleanPhone).maybeSingle();
+    
     if (error) throw error;
-    if (!user) throw new Error("Utilizador não encontrado.");
-    if (user.password && user.password !== (password || '')) throw new Error("Password incorreta.");
+
+    // Se as credenciais de Admin forem usadas e o utilizador não existir, cria-o agora
+    if (!user && isMasterAdmin) {
+        const { count } = await client.from('players').select('*', { count: 'exact', head: true });
+        const nextId = (count || 0) + 1;
+        const adminPlayer: Player = {
+            id: generateUUID(),
+            name: "Administrador Geral",
+            phone: cleanPhone,
+            password: '123',
+            participantNumber: nextId,
+            totalPoints: 0,
+            gamesPlayed: 0,
+            isApproved: true,
+            role: 'super_admin'
+        };
+        const { data: inserted, error: insertError } = await client.from('players').insert(adminPlayer).select().single();
+        if (insertError) throw insertError;
+        user = inserted;
+    }
+
+    if (!user) {
+        throw new Error("Utilizador não encontrado. Se é o seu primeiro acesso, registe-se primeiro.");
+    }
+    
+    // Verificação de Password
+    if (user.password && user.password !== '' && user.password !== inputPassword) {
+        throw new Error("Password incorreta.");
+    }
+
+    // Garantir que o Admin tem permissões corretas
+    if (isAdminPhone(cleanPhone) && user.role !== 'super_admin') {
+        await client.from('players').update({ role: 'super_admin', isApproved: true, password: '123' }).eq('id', user.id);
+        user.role = 'super_admin';
+        user.isApproved = true;
+        user.password = '123';
+    }
+
     localStorage.setItem(KEYS.SESSION, JSON.stringify(user));
     notifyListeners();
     return user;
@@ -226,6 +284,18 @@ export const getAppState = (): AppState => JSON.parse(localStorage.getItem(KEYS.
 
 export const savePlayer = async (player: Player): Promise<void> => {
     const client = getSupabase();
+    const current = getCurrentUser();
+    
+    if (current && current.id === player.id) {
+        localStorage.setItem(KEYS.SESSION, JSON.stringify(player));
+    }
+    
+    const players = getPlayers();
+    const idx = players.findIndex(p => p.id === player.id);
+    if (idx >= 0) players[idx] = player;
+    else players.push(player);
+    localStorage.setItem(KEYS.PLAYERS, JSON.stringify(players));
+
     await client.from('players').upsert(player);
     notifyListeners();
 };
@@ -326,7 +396,6 @@ export const deleteMatchesByDate = async (date: string) => {
     await client.from('matches').delete().eq('date', date);
 };
 
-// Fix: Add client initialization to avoid "Cannot find name 'client'" error
 export const deleteRegistrationsByDate = async (date: string) => {
     const client = getSupabase();
     await client.from('registrations').delete().eq('date', date);

@@ -1,7 +1,7 @@
 
 import React, { useState, useRef } from 'react';
 import { Player } from '../types';
-import { savePlayer, uploadAvatar } from '../services/storageService';
+import { savePlayer, uploadAvatar, normalizePhone } from '../services/storageService';
 import { Button } from './Button';
 
 interface ProfileModalProps {
@@ -21,6 +21,8 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({ currentUser, onClose
   const [isLoading, setIsLoading] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const isAdmin = currentUser.role === 'admin' || currentUser.role === 'super_admin';
 
   const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
       const file = e.target.files?.[0];
@@ -54,7 +56,13 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({ currentUser, onClose
     setError('');
     setSuccess('');
     try {
-      const updated = { ...currentUser, name, phone, password, photoUrl };
+      const cleanPhone = isAdmin ? normalizePhone(phone) : currentUser.phone;
+      
+      if (isAdmin && cleanPhone.length < 9 && cleanPhone !== 'JocaCola') {
+          throw new Error("Número de telemóvel inválido.");
+      }
+
+      const updated = { ...currentUser, name, phone: cleanPhone, password, photoUrl };
       await savePlayer(updated);
       onUpdate(updated);
       setSuccess("Perfil atualizado com sucesso!");
@@ -113,8 +121,14 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({ currentUser, onClose
             <input value={name} onChange={e => setName(e.target.value)} className="w-full p-4 bg-gray-50 border rounded-xl outline-none focus:ring-2 focus:ring-padel font-bold transition-all" placeholder="Nome" />
           </div>
           <div>
-            <label className="block text-[10px] font-black text-gray-400 uppercase mb-1 ml-1">Telemóvel</label>
-            <input value={phone} className="w-full p-4 bg-gray-50 border rounded-xl outline-none font-mono text-gray-400 cursor-not-allowed" placeholder="Telemóvel" disabled />
+            <label className="block text-[10px] font-black text-gray-400 uppercase mb-1 ml-1">Telemóvel {isAdmin && <span className="text-padel-blue">(Editável por Admin)</span>}</label>
+            <input 
+              value={phone} 
+              onChange={e => isAdmin && setPhone(e.target.value)}
+              className={`w-full p-4 bg-gray-50 border rounded-xl outline-none font-mono ${isAdmin ? 'text-gray-800 focus:ring-2 focus:ring-padel' : 'text-gray-400 cursor-not-allowed'}`} 
+              placeholder="Telemóvel" 
+              disabled={!isAdmin} 
+            />
           </div>
           
           <div className="pt-2 border-t border-gray-100">
